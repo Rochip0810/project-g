@@ -1,0 +1,42 @@
+name: Bug report
+description: Report incorrect Project G behavior
+title: "[BUG] "
+labels:
+  - "type:bug"
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: development, test, staging, production
+  - type: input
+    id: identifiers
+    attributes:
+      label: Related Story, Workflow, Task, or error code
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Low
+        - Medium
+        - High
+        - Critical
+    validations:
+      required: true

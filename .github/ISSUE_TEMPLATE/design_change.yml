@@ -1,0 +1,34 @@
+name: Design change
+description: Propose a change to an approved Blueprint decision
+title: "[DESIGN] "
+labels:
+  - "type:documentation"
+body:
+  - type: textarea
+    id: current_problem
+    attributes:
+      label: Current problem
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_change
+    attributes:
+      label: Proposed design change
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact on API, database, modules, security, and operations
+  - type: dropdown
+    id: adr
+    attributes:
+      label: Is an ADR required?
+      options:
+        - Yes
+        - No
+        - To be determined
