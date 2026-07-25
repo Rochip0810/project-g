@@ -51,3 +51,22 @@ def test_production_loads_when_required_secrets_exist() -> None:
 def test_invalid_api_port_is_rejected() -> None:
     with pytest.raises(ValidationError):
         Settings.model_validate({"api_port": 70000})
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    [
+        ("scheduler_interval_seconds", 0),
+        ("scheduler_lock_timeout_seconds", 0),
+    ],
+)
+def test_invalid_scheduler_settings_are_rejected(
+    field_name: str,
+    invalid_value: int,
+) -> None:
+    with pytest.raises(ValidationError):
+        Settings.model_validate(
+            {
+                field_name: invalid_value,
+            }
+        )

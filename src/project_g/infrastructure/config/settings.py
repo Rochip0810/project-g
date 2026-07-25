@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     rq_result_ttl_seconds: int = Field(default=3600, ge=0)
     rq_failure_ttl_seconds: int = Field(default=604800, ge=0)
 
+    scheduler_interval_seconds: int = Field(default=60, ge=1)
+    scheduler_lock_timeout_seconds: int = Field(default=30, ge=1)
+    scheduler_lock_key: str = "project-g:scheduler:lock"
+
     publishing_enabled: bool = False
 
     @model_validator(mode="after")

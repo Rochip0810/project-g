@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TypeAlias
 
-JobScalar: TypeAlias = str | int | float | bool | None
-JobArgument: TypeAlias = JobScalar | list[JobScalar] | dict[str, JobScalar]
+type JobScalar = str | int | float | bool | None
+type JobArgument = JobScalar | list[JobScalar] | dict[str, JobScalar]
 
 
 class QueueName(StrEnum):

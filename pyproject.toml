@@ -22,6 +22,7 @@ dependencies = [
 [project.scripts]
 project-g = "project_g:main"
 project-g-worker = "project_g.interfaces.workers.main:main"
+project-g-scheduler = "project_g.interfaces.scheduler.main:main"
 
 [build-system]
 requires = ["uv_build>=0.11.30,<0.12.0"]
@@ -29,7 +30,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "fakeredis>=2.37.0",
+    "fakeredis[lua]>=2.37.0",
     "httpx>=0.28.1",
     "mypy>=2.3.0",
     "pytest>=9.1.1",
