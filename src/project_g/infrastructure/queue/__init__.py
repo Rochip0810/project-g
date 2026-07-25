@@ -6,8 +6,12 @@ from project_g.infrastructure.queue.connection import (
     create_redis_client,
     create_redis_connection_pool,
 )
+from project_g.infrastructure.queue.rq_provider import (
+    RQQueueProvider,
+)
 
 __all__ = [
+    "RQQueueProvider",
     "RedisClient",
     "check_redis_connection",
     "close_redis_client",
