@@ -93,9 +93,11 @@ def test_session_scope_rolls_back_and_closes_on_failure() -> None:
     factory_mock = MagicMock(return_value=session_mock)
     session_factory = cast(SessionFactory, factory_mock)
 
-    with pytest.raises(RuntimeError, match="transaction failed"):
-        with session_scope(session_factory):
-            raise RuntimeError("transaction failed")
+    with (
+        pytest.raises(RuntimeError, match="transaction failed"),
+        session_scope(session_factory),
+    ):
+        raise RuntimeError("transaction failed")
 
     session_mock.commit.assert_not_called()
     session_mock.rollback.assert_called_once_with()
