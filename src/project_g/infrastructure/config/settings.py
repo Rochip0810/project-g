@@ -40,6 +40,22 @@ class Settings(BaseSettings):
     redis_host: str = "queue"
     redis_port: int = Field(default=6379, ge=1, le=65535)
     redis_database: int = Field(default=0, ge=0)
+    redis_socket_connect_timeout_seconds: float = Field(
+        default=5.0,
+        gt=0,
+    )
+    redis_socket_timeout_seconds: float = Field(
+        default=5.0,
+        gt=0,
+    )
+    redis_health_check_interval_seconds: int = Field(
+        default=30,
+        ge=0,
+    )
+    redis_max_connections: int = Field(
+        default=20,
+        ge=1,
+    )
 
     rq_default_queue: str = "default"
     rq_job_timeout_seconds: int = Field(default=300, ge=1)
