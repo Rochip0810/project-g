@@ -16,12 +16,14 @@ class RedisClient(Protocol):
 
 def create_redis_connection_pool(
     settings: Settings,
+    *,
+    decode_responses: bool = True,
 ) -> ConnectionPool:
     return ConnectionPool(
         host=settings.redis_host,
         port=settings.redis_port,
         db=settings.redis_database,
-        decode_responses=True,
+        decode_responses=decode_responses,
         socket_connect_timeout=(settings.redis_socket_connect_timeout_seconds),
         socket_timeout=settings.redis_socket_timeout_seconds,
         health_check_interval=(settings.redis_health_check_interval_seconds),

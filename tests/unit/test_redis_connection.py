@@ -127,3 +127,15 @@ def test_healthy_client_matches_redis_protocol() -> None:
     client: RedisClient = HealthyRedisClient()
 
     assert client.ping() is True
+
+
+def test_redis_pool_can_disable_response_decoding_for_rq() -> None:
+    pool = create_redis_connection_pool(
+        _create_redis_settings(),
+        decode_responses=False,
+    )
+
+    try:
+        assert pool.connection_kwargs["decode_responses"] is False
+    finally:
+        close_redis_connection_pool(pool)

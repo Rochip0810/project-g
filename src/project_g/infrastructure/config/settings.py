@@ -58,8 +58,11 @@ class Settings(BaseSettings):
     )
 
     rq_default_queue: str = "default"
+    rq_system_queue: str = "system"
     rq_job_timeout_seconds: int = Field(default=300, ge=1)
     rq_max_retries: int = Field(default=3, ge=0)
+    rq_result_ttl_seconds: int = Field(default=3600, ge=0)
+    rq_failure_ttl_seconds: int = Field(default=604800, ge=0)
 
     publishing_enabled: bool = False
 
