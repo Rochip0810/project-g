@@ -1,0 +1,136 @@
+name: project-g
+
+x-app-common: &app-common
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  image: project-g:dev
+  env_file:
+    - ../.env
+  environment:
+    APP_ENV: development
+    DATABASE_HOST: db
+    REDIS_HOST: queue
+    PUBLISHING_ENABLED: "false"
+  init: true
+  security_opt:
+    - no-new-privileges:true
+  networks:
+    - project_g_internal
+
+services:
+  db:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-project_g}
+      POSTGRES_USER: ${DATABASE_USER:-project_g}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - project_g_internal
+
+  queue:
+    image: redis:8.8.1-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - project_g_internal
+
+  migrate:
+    <<: *app-common
+    command:
+      - alembic
+      - upgrade
+      - head
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app-common
+    command:
+      - uvicorn
+      - project_g.interfaces.api.app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    ports:
+      - 127.0.0.1:8000:8000
+    depends_on:
+      db:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+          'http://127.0.0.1:8000/api/v1/health/readiness',
+          timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    <<: *app-common
+    command:
+      - project-g-worker
+    depends_on:
+      queue:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  scheduler:
+    <<: *app-common
+    command:
+      - project-g-scheduler
+    depends_on:
+      queue:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  project_g_internal:
+    driver: bridge

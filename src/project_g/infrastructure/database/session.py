@@ -1,5 +1,6 @@
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from typing import cast
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, Engine
@@ -57,6 +58,7 @@ def check_database_connection(engine: Engine) -> bool:
     try:
         with engine.connect() as connection:
             result = connection.execute(text("SELECT 1"))
-            return result.scalar_one() == 1
+            value = cast(int, result.scalar_one())
+            return value == 1
     except SQLAlchemyError:
         return False
