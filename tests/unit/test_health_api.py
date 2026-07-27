@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from project_g.infrastructure.config import AppEnvironment, Settings
 from project_g.interfaces.api import create_app
+from project_g.monitoring import ReadinessReport
 
 
 def _create_test_settings() -> Settings:
@@ -13,8 +14,27 @@ def _create_test_settings() -> Settings:
     )
 
 
+def _ready_report() -> ReadinessReport:
+    return ReadinessReport(
+        database=True,
+        redis=True,
+        migrations=True,
+    )
+
+
+def _not_ready_report() -> ReadinessReport:
+    return ReadinessReport(
+        database=False,
+        redis=True,
+        migrations=False,
+    )
+
+
 def test_application_uses_project_settings() -> None:
-    app = create_app(_create_test_settings())
+    app = create_app(
+        _create_test_settings(),
+        readiness_probe=_ready_report,
+    )
 
     assert app.title == "Project G API"
     assert app.version == "0.1.0-test"
@@ -22,7 +42,10 @@ def test_application_uses_project_settings() -> None:
 
 
 def test_health_endpoint_returns_liveness_response() -> None:
-    app = create_app(_create_test_settings())
+    app = create_app(
+        _create_test_settings(),
+        readiness_probe=_ready_report,
+    )
 
     with TestClient(app) as client:
         response = client.get("/api/v1/health")
@@ -37,7 +60,10 @@ def test_health_endpoint_returns_liveness_response() -> None:
 
 
 def test_readiness_endpoint_returns_ready_response() -> None:
-    app = create_app(_create_test_settings())
+    app = create_app(
+        _create_test_settings(),
+        readiness_probe=_ready_report,
+    )
 
     with TestClient(app) as client:
         response = client.get("/api/v1/health/readiness")
@@ -48,11 +74,34 @@ def test_readiness_endpoint_returns_ready_response() -> None:
         "application": "project-g-test",
         "version": "0.1.0-test",
         "environment": "test",
+        "checks": {
+            "database": True,
+            "redis": True,
+            "migrations": True,
+        },
     }
 
 
+def test_readiness_returns_503_when_dependency_is_unavailable() -> None:
+    app = create_app(
+        _create_test_settings(),
+        readiness_probe=_not_ready_report,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/health/readiness")
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "not_ready"
+    assert response.json()["checks"]["database"] is False
+    assert response.json()["checks"]["migrations"] is False
+
+
 def test_openapi_document_is_generated() -> None:
-    app = create_app(_create_test_settings())
+    app = create_app(
+        _create_test_settings(),
+        readiness_probe=_ready_report,
+    )
 
     with TestClient(app) as client:
         response = client.get("/api/v1/openapi.json")
@@ -68,7 +117,10 @@ def test_openapi_document_is_generated() -> None:
 
 
 def test_unknown_endpoint_returns_not_found() -> None:
-    app = create_app(_create_test_settings())
+    app = create_app(
+        _create_test_settings(),
+        readiness_probe=_ready_report,
+    )
 
     with TestClient(app) as client:
         response = client.get("/api/v1/not-found")
