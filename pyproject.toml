@@ -65,3 +65,8 @@ minversion = "9.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra --strict-markers --strict-config --cov=project_g --cov-report=term-missing"
+markers = [
+    "unit: fast isolated tests without external services",
+    "integration: tests combining multiple Project G components",
+    "docker: local Docker Compose smoke tests",
+]
