@@ -1,6 +1,6 @@
+import os
 from collections.abc import Iterator
 from pathlib import Path
-import os
 from typing import Any
 
 import pytest
