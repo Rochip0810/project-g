@@ -209,7 +209,7 @@ jobs:
             docker compose \
               --env-file .env \
               -f "${COMPOSE_FILE}" \
-              ps -q migrate
+              ps --all -q migrate
           )"
 
           if [[ -z "${container_id}" ]]; then
@@ -268,7 +268,7 @@ jobs:
             "$(docker compose \
               --env-file .env \
               -f "${COMPOSE_FILE}" \
-              ps -q migrate)" \
+              ps --all -q migrate)" \
             > artifacts/docker/migrate-inspect.json 2>&1 || true
 
       - name: Upload Docker diagnostics
