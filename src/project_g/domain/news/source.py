@@ -1,6 +1,6 @@
+import re
 from dataclasses import dataclass
 from enum import StrEnum
-import re
 from urllib.parse import urlparse
 
 
