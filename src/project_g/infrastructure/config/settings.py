@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     scheduler_lock_timeout_seconds: int = Field(default=30, ge=1)
     scheduler_lock_key: str = "project-g:scheduler:lock"
 
+    collection_request_timeout_seconds: float = Field(
+        default=10.0,
+        gt=0,
+        le=120,
+    )
+
     publishing_enabled: bool = False
 
     @model_validator(mode="after")
