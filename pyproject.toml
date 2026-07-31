@@ -23,6 +23,7 @@ dependencies = [
 project-g = "project_g:main"
 project-g-worker = "project_g.interfaces.workers.main:main"
 project-g-scheduler = "project_g.interfaces.scheduler.main:main"
+project-g-seed-news-sources = "project_g.interfaces.management.seed_news_sources:main"
 
 [build-system]
 requires = ["uv_build>=0.11.30,<0.12.0"]
