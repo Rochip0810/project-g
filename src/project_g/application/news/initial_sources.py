@@ -11,7 +11,7 @@ INITIAL_NEWS_SOURCES: tuple[NewsSource, ...] = (
         source_type=SourceType.WEBSITE,
         base_url="https://www.giants.jp/news/",
         is_official=True,
-        status=SourceStatus.ENABLED,
+        status=SourceStatus.PAUSED,
         priority=100,
     ),
     NewsSource(

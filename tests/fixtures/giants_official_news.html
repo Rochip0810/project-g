@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>読売ジャイアンツ公式ニュース</title>
+</head>
+<body>
+  <main>
+    <article class="news-card">
+      <time>2026.07.31</time>
+      <a href="/news/12345/">
+        新外国人選手の入団を発表
+      </a>
+    </article>
+
+    <article class="news-card">
+      <div class="published-date">2026年7月30日</div>
+      <a href="https://www.giants.jp/news/12344/?utm_source=test">
+        一軍登録選手のお知らせ
+      </a>
+    </article>
+
+    <article class="news-card">
+      <time>2026-07-29</time>
+      <a href="/news/12343/">
+        東京ドームでイベントを開催
+      </a>
+    </article>
+
+    <!-- 同じ記事の重複リンク -->
+    <div>
+      <span>2026.07.31</span>
+      <a href="/news/12345/">重複リンク</a>
+    </div>
+
+    <!-- 外部ドメインなので除外 -->
+    <div>
+      <span>2026.07.28</span>
+      <a href="https://example.com/news/99999/">
+        外部サイトの記事
+      </a>
+    </div>
+
+    <!-- 記事以外のリンクなので除外 -->
+    <a href="/schedule/first-team/">
+      試合日程
+    </a>
+
+    <!-- 日付がないため除外 -->
+    <a href="/news/12342/">
+      日付不明の記事
+    </a>
+  </main>
+</body>
+</html>

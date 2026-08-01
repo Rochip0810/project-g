@@ -54,7 +54,6 @@ def test_collectable_sources_follow_editorial_priority(
     seed_initial_news_sources(repository)
 
     assert tuple(source.source_id for source in repository.list_collectable()) == (
-        "giants_official_news",
         "giants_official_schedule",
         "npb_official_schedule",
         "npb_official_stats",
