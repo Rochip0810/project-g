@@ -73,6 +73,21 @@ class Settings(BaseSettings):
         gt=0,
         le=120,
     )
+    collection_max_response_bytes: int = Field(
+        default=2_000_000,
+        ge=10_000,
+        le=10_000_000,
+    )
+    collection_max_redirects: int = Field(
+        default=3,
+        ge=0,
+        le=10,
+    )
+    collection_user_agent: str = Field(
+        default=("ProjectG/0.1 (metadata-only news collector)"),
+        min_length=10,
+        max_length=200,
+    )
 
     publishing_enabled: bool = False
 

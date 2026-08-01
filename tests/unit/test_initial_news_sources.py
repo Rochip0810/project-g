@@ -54,3 +54,12 @@ def test_catalog_priorities_are_unique_and_descending() -> None:
 
     assert len(set(priorities)) == 7
     assert priorities == tuple(sorted(priorities, reverse=True))
+
+
+def test_giants_official_news_is_paused() -> None:
+    source = next(
+        source for source in INITIAL_NEWS_SOURCES if source.source_id == "giants_official_news"
+    )
+
+    assert source.status is SourceStatus.PAUSED
+    assert source.collectable is False
