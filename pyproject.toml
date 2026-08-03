@@ -27,6 +27,7 @@ project-g-worker = "project_g.interfaces.workers.main:main"
 project-g-scheduler = "project_g.interfaces.scheduler.main:main"
 project-g-seed-news-sources = "project_g.interfaces.management.seed_news_sources:main"
 project-g-collect-giants-news = "project_g.interfaces.management.collect_giants_official_news:main"
+project-g-submit-news-url = "project_g.interfaces.management.submit_news_url:main"
 
 [build-system]
 requires = ["uv_build>=0.11.30,<0.12.0"]

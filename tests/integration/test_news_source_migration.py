@@ -22,7 +22,10 @@ def test_news_source_migration_upgrade_and_downgrade(
     assert "news_sources" not in inspector.get_table_names()
     assert get_current_revision(database_engine) == ("0001_baseline")
 
-    command.upgrade(alembic_config, "head")
+    command.upgrade(
+        alembic_config,
+        "0002_news_sources",
+    )
 
     inspector = inspect(database_engine)
 

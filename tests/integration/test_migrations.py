@@ -35,7 +35,7 @@ def test_alembic_configuration_contains_no_database_password() -> None:
 def test_initial_head_revision_is_available() -> None:
     config = create_alembic_config()
 
-    assert get_head_revision(config) == "0002_news_sources"
+    assert get_head_revision(config) == "0003_manual_news_intakes"
 
 
 def test_upgrade_to_head_and_downgrade_to_base(
@@ -51,7 +51,7 @@ def test_upgrade_to_head_and_downgrade_to_base(
 
         command.upgrade(config, "head")
 
-        assert get_current_revision(engine) == "0002_news_sources"
+        assert get_current_revision(engine) == "0003_manual_news_intakes"
         assert is_database_at_head(engine, config) is True
 
         command.downgrade(config, "base")
@@ -79,4 +79,4 @@ def test_offline_upgrade_generates_sql() -> None:
     generated_sql = output.getvalue()
 
     assert "CREATE TABLE alembic_version" in generated_sql
-    assert "0002_news_sources" in generated_sql
+    assert "0003_manual_news_intakes" in generated_sql
