@@ -5,8 +5,8 @@ from project_g.application.news.initial_sources import (
 )
 from project_g.application.news.manual_url import (
     ManualNewsUrlResolver,
-    UnsupportedNewsSourceError,
     UnsafeManualNewsUrlError,
+    UnsupportedNewsSourceError,
 )
 
 

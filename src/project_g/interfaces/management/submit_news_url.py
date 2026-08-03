@@ -1,6 +1,6 @@
+import sys
 from argparse import ArgumentParser, Namespace
 from collections.abc import Sequence
-import sys
 from typing import TextIO
 
 from sqlalchemy.orm import Session, sessionmaker

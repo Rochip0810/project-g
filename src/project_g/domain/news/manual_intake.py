@@ -1,6 +1,6 @@
+import re
 from dataclasses import dataclass
 from datetime import datetime
-import re
 from urllib.parse import urlsplit
 from uuid import UUID
 
