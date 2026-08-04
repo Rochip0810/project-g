@@ -25,7 +25,10 @@ def test_manual_news_intake_migration_upgrade_and_downgrade(
     assert "manual_news_intakes" not in inspector.get_table_names()
     assert get_current_revision(database_engine) == "0002_news_sources"
 
-    command.upgrade(alembic_config, "head")
+    command.upgrade(
+        alembic_config,
+        "0003_manual_news_intakes",
+    )
 
     inspector = inspect(database_engine)
 
@@ -67,6 +70,9 @@ def test_manual_news_intake_migration_upgrade_and_downgrade(
     assert get_current_revision(database_engine) == "0002_news_sources"
 
     # Restore the database for tests that run afterward.
-    command.upgrade(alembic_config, "head")
+    command.upgrade(
+        alembic_config,
+        "0003_manual_news_intakes",
+    )
 
     assert get_current_revision(database_engine) == "0003_manual_news_intakes"
