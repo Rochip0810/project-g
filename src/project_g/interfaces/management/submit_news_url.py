@@ -6,6 +6,9 @@ from typing import TextIO
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from project_g.application.news.create_article_metadata import (
+    CreateNewsArticleMetadata,
+)
 from project_g.application.news.create_manual_intake import (
     CreateManualNewsIntake,
 )
@@ -22,17 +25,22 @@ from project_g.application.news.manual_url import (
 from project_g.application.news.seed_sources import (
     seed_initial_news_sources,
 )
+from project_g.domain.news.article_metadata import (
+    NewsArticleMetadata,
+)
 from project_g.domain.news.manual_intake import ManualNewsIntake
 from project_g.domain.news.processing_job import NewsProcessingJob
 from project_g.infrastructure.config import Settings
 from project_g.infrastructure.database import create_database_engine
 from project_g.infrastructure.database.repositories import (
     SqlAlchemyManualNewsIntakeRepository,
+    SqlAlchemyNewsArticleMetadataRepository,
     SqlAlchemyNewsProcessingJobRepository,
     SqlAlchemyNewsSourceRepository,
 )
 from project_g.ports.repositories import (
     ManualNewsIntakeAlreadyExistsError,
+    NewsArticleMetadataAlreadyExistsError,
     NewsProcessingJobAlreadyExistsError,
 )
 
@@ -41,6 +49,7 @@ from project_g.ports.repositories import (
 class SubmittedNewsUrl:
     intake: ManualNewsIntake
     processing_job: NewsProcessingJob
+    article_metadata: NewsArticleMetadata
 
 
 def parse_arguments(
@@ -49,7 +58,8 @@ def parse_arguments(
     parser = ArgumentParser(
         description=(
             "Register one news URL and create its pending "
-            "processing job without fetching article content."
+            "processing job and metadata record without "
+            "fetching article content."
         )
     )
     parser.add_argument(
@@ -92,9 +102,15 @@ def create_manual_intake_and_job(
         repository=job_repository,
     ).execute(intake.intake_id)
 
+    metadata_repository = SqlAlchemyNewsArticleMetadataRepository(session)
+    article_metadata = CreateNewsArticleMetadata(
+        repository=metadata_repository,
+    ).execute(intake.intake_id)
+
     return SubmittedNewsUrl(
         intake=intake,
         processing_job=processing_job,
+        article_metadata=article_metadata,
     )
 
 
@@ -105,6 +121,7 @@ def print_submission(
 ) -> None:
     intake = submission.intake
     job = submission.processing_job
+    metadata = submission.article_metadata
 
     print("status=created", file=output)
     print(f"intake_id={intake.intake_id}", file=output)
@@ -122,6 +139,14 @@ def print_submission(
     )
     print(
         f"processing_attempt_count={job.attempt_count}",
+        file=output,
+    )
+    print(
+        f"article_metadata_id={metadata.metadata_id}",
+        file=output,
+    )
+    print(
+        f"article_metadata_status={metadata.status.value}",
         file=output,
     )
 
@@ -160,6 +185,16 @@ def main(
             file=sys.stderr,
         )
         raise SystemExit(4) from error
+    except NewsArticleMetadataAlreadyExistsError as error:
+        print(
+            "status=article_metadata_duplicate",
+            file=sys.stderr,
+        )
+        print(
+            f"intake_id={error.intake_id}",
+            file=sys.stderr,
+        )
+        raise SystemExit(5) from error
     except ManualNewsUrlError as error:
         print("status=rejected", file=sys.stderr)
         print(f"message={error}", file=sys.stderr)

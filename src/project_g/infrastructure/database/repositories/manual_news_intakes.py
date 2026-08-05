@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -35,6 +37,20 @@ class SqlAlchemyManualNewsIntakeRepository:
                 self._session.flush()
         except IntegrityError as error:
             raise ManualNewsIntakeAlreadyExistsError(intake.canonical_url) from error
+
+        return record.to_domain()
+
+    def get_by_intake_id(
+        self,
+        intake_id: UUID,
+    ) -> ManualNewsIntake | None:
+        record = self._session.get(
+            ManualNewsIntakeRecord,
+            intake_id,
+        )
+
+        if record is None:
+            return None
 
         return record.to_domain()
 
