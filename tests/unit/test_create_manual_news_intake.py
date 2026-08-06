@@ -50,6 +50,12 @@ class FakeManualNewsIntakeRepository:
 
         return intake
 
+    def get_by_intake_id(
+        self,
+        intake_id: UUID,
+    ) -> ManualNewsIntake | None:
+        return None
+
     def get_by_canonical_url(
         self,
         canonical_url: str,

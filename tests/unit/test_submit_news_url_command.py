@@ -4,6 +4,9 @@ from uuid import UUID
 
 import pytest
 
+from project_g.domain.news.article_metadata import (
+    NewsArticleMetadata,
+)
 from project_g.domain.news.manual_intake import ManualNewsIntake
 from project_g.domain.news.processing_job import (
     NewsProcessingJob,
@@ -16,10 +19,11 @@ from project_g.interfaces.management.submit_news_url import (
 
 _INTAKE_ID = UUID("19e78508-577e-44ea-a304-7d5ee9d0716d")
 _JOB_ID = UUID("4cb52bb6-3e98-48aa-a3ae-607f2d06391c")
+_METADATA_ID = UUID("9d02a8c9-f840-44a8-a660-987cc429bd77")
 _SUBMITTED_AT = datetime(
     2026,
     8,
-    4,
+    5,
     12,
     30,
     tzinfo=UTC,
@@ -39,10 +43,16 @@ def _submission() -> SubmittedNewsUrl:
         intake_id=_INTAKE_ID,
         created_at=_SUBMITTED_AT,
     )
+    metadata = NewsArticleMetadata.pending(
+        metadata_id=_METADATA_ID,
+        intake_id=_INTAKE_ID,
+        created_at=_SUBMITTED_AT,
+    )
 
     return SubmittedNewsUrl(
         intake=intake,
         processing_job=job,
+        article_metadata=metadata,
     )
 
 
@@ -57,7 +67,7 @@ def test_parse_arguments_requires_url() -> None:
         parse_arguments([])
 
 
-def test_print_submission_displays_intake_and_job() -> None:
+def test_print_submission_displays_all_records() -> None:
     output = StringIO()
 
     print_submission(
@@ -74,3 +84,5 @@ def test_print_submission_displays_intake_and_job() -> None:
     assert f"processing_job_id={_JOB_ID}" in text
     assert "processing_status=pending" in text
     assert "processing_attempt_count=0" in text
+    assert f"article_metadata_id={_METADATA_ID}" in text
+    assert "article_metadata_status=pending" in text

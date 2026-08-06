@@ -1,4 +1,5 @@
 from typing import Protocol
+from uuid import UUID
 
 from project_g.domain.news.manual_intake import ManualNewsIntake
 
@@ -17,6 +18,13 @@ class ManualNewsIntakeRepository(Protocol):
         intake: ManualNewsIntake,
     ) -> ManualNewsIntake:
         """Store and return a manual news intake."""
+        ...
+
+    def get_by_intake_id(
+        self,
+        intake_id: UUID,
+    ) -> ManualNewsIntake | None:
+        """Return an intake matching its UUID."""
         ...
 
     def get_by_canonical_url(
