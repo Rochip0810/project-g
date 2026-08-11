@@ -4,9 +4,6 @@ from uuid import UUID
 import pytest
 
 from project_g.application.news import INITIAL_NEWS_SOURCES
-from project_g.application.news.manual_url import (
-    ManualNewsUrlResolver,
-)
 from project_g.application.news.register_collected_item import (
     CollectedNewsItemMismatchError,
     CollectedNewsRegistrationStatus,
@@ -178,7 +175,7 @@ def _service(
     metadata_repository: FakeMetadataRepository,
 ) -> RegisterCollectedNewsItem:
     return RegisterCollectedNewsItem(
-        resolver=ManualNewsUrlResolver(INITIAL_NEWS_SOURCES),
+        sources=INITIAL_NEWS_SOURCES,
         intake_repository=intake_repository,
         processing_job_repository=job_repository,
         metadata_repository=metadata_repository,
@@ -249,3 +246,33 @@ def test_collected_item_source_mismatch_is_rejected() -> None:
             FakeProcessingJobRepository(),
             FakeMetadataRepository(),
         ).execute(_item(source_id="npb_official_schedule"))
+
+
+def test_hochi_article_outside_source_base_path_is_registered() -> None:
+    intake_repository = FakeIntakeRepository()
+    job_repository = FakeProcessingJobRepository()
+    metadata_repository = FakeMetadataRepository()
+
+    article_url = "https://hochi.news/articles/20260811-OHT1T51258.html"
+
+    item = CollectedNewsItem(
+        source_id="hochi_giants_articles",
+        source_name="Sports Hochi Giants Articles",
+        title="【巨人】テスト記事",
+        source_url=article_url,
+        canonical_url=article_url,
+        collected_at=_COLLECTED_AT,
+        published_at=_COLLECTED_AT,
+        external_id="20260811-OHT1T51258",
+    )
+
+    result = _service(
+        intake_repository,
+        job_repository,
+        metadata_repository,
+    ).execute(item)
+
+    assert result.status is CollectedNewsRegistrationStatus.REGISTERED
+    assert result.intake is not None
+    assert result.intake.source_id == "hochi_giants_articles"
+    assert result.intake.canonical_url == article_url

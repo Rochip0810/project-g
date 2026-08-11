@@ -14,6 +14,8 @@ from project_g.ports.queue import QueueName
 
 Clock = Callable[[], datetime]
 
+HOCHI_DISCOVERY_INTERVAL_SECONDS = 300
+
 
 class SchedulerRunStatus(StrEnum):
     ENQUEUED = "enqueued"
@@ -26,6 +28,7 @@ class SchedulerIterationResult:
     status: SchedulerRunStatus
     job_id: str | None
     discovery_job_id: str | None = None
+    hochi_discovery_job_id: str | None = None
 
 
 class SchedulerService:
@@ -43,24 +46,43 @@ class SchedulerService:
         self._clock = clock if clock is not None else lambda: datetime.now(UTC)
         self._logger = get_logger("project_g.scheduler")
 
+    @staticmethod
     def _time_bucket(
-        self,
         current_time: datetime,
+        *,
+        interval_seconds: int,
     ) -> int:
-        interval = self._settings.scheduler_interval_seconds
-        return int(current_time.timestamp()) // interval
+        return int(current_time.timestamp()) // interval_seconds
 
     def _create_heartbeat_job_id(
         self,
         current_time: datetime,
     ) -> str:
-        return f"system-heartbeat-{self._time_bucket(current_time)}"
+        bucket = self._time_bucket(
+            current_time,
+            interval_seconds=(self._settings.scheduler_interval_seconds),
+        )
+        return f"system-heartbeat-{bucket}"
 
     def _create_discovery_job_id(
         self,
         current_time: datetime,
     ) -> str:
-        return f"news-discovery-giants-{self._time_bucket(current_time)}"
+        bucket = self._time_bucket(
+            current_time,
+            interval_seconds=(self._settings.scheduler_interval_seconds),
+        )
+        return f"news-discovery-giants-{bucket}"
+
+    def _create_hochi_discovery_job_id(
+        self,
+        current_time: datetime,
+    ) -> str:
+        bucket = self._time_bucket(
+            current_time,
+            interval_seconds=(HOCHI_DISCOVERY_INTERVAL_SECONDS),
+        )
+        return f"news-discovery-hochi-{bucket}"
 
     def run_once(self) -> SchedulerIterationResult:
         if not self._scheduler_lock.acquire():
@@ -68,6 +90,7 @@ class SchedulerService:
                 status=SchedulerRunStatus.SKIPPED_LOCKED,
                 job_id=None,
                 discovery_job_id=None,
+                hochi_discovery_job_id=None,
             )
 
         try:
@@ -75,6 +98,7 @@ class SchedulerService:
 
             heartbeat_job_id = self._create_heartbeat_job_id(current_time)
             discovery_job_id = self._create_discovery_job_id(current_time)
+            hochi_discovery_job_id = self._create_hochi_discovery_job_id(current_time)
 
             enqueued_any = False
 
@@ -96,7 +120,20 @@ class SchedulerService:
                     QueueName.DEFAULT,
                     ("project_g.interfaces.workers.jobs.discover_giants_news"),
                     job_id=discovery_job_id,
-                    description=("Discover Giants news"),
+                    description="Discover Giants news",
+                )
+            except DuplicateJobError:
+                pass
+            else:
+                enqueued_any = True
+
+            try:
+                self._queue_provider.enqueue(
+                    QueueName.DEFAULT,
+                    ("project_g.interfaces.workers.jobs.discover_hochi_giants_news"),
+                    kwargs={"max_items": 5},
+                    job_id=hochi_discovery_job_id,
+                    description=("Discover Sports Hochi Giants news"),
                 )
             except DuplicateJobError:
                 pass
@@ -111,6 +148,7 @@ class SchedulerService:
                 ),
                 job_id=heartbeat_job_id,
                 discovery_job_id=discovery_job_id,
+                hochi_discovery_job_id=(hochi_discovery_job_id),
             )
         finally:
             self._scheduler_lock.release()
@@ -128,6 +166,7 @@ class SchedulerService:
                 status=result.status.value,
                 job_id=result.job_id,
                 discovery_job_id=(result.discovery_job_id),
+                hochi_discovery_job_id=(result.hochi_discovery_job_id),
             )
 
             stop_event.wait(self._settings.scheduler_interval_seconds)

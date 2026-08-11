@@ -1,12 +1,13 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
-from project_g.application.news.manual_url import (
-    ManualNewsUrlResolver,
+from project_g.domain.news import (
+    CollectedNewsItem,
+    NewsSource,
 )
-from project_g.domain.news import CollectedNewsItem
 from project_g.domain.news.article_metadata import (
     NewsArticleMetadata,
 )
@@ -36,7 +37,7 @@ class CollectedNewsRegistrationStatus(StrEnum):
 
 
 class CollectedNewsItemMismatchError(ValueError):
-    """Raised when collector data disagrees with URL resolution."""
+    """Raised when collector data disagrees with the registered source."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +53,7 @@ class RegisterCollectedNewsItem:
     def __init__(
         self,
         *,
-        resolver: ManualNewsUrlResolver,
+        sources: tuple[NewsSource, ...],
         intake_repository: ManualNewsIntakeRepository,
         processing_job_repository: NewsProcessingJobRepository,
         metadata_repository: NewsArticleMetadataRepository,
@@ -60,7 +61,7 @@ class RegisterCollectedNewsItem:
         processing_job_id_factory: IdFactory = uuid4,
         metadata_id_factory: IdFactory = uuid4,
     ) -> None:
-        self._resolver = resolver
+        self._sources = {source.source_id: source for source in sources}
         self._intake_repository = intake_repository
         self._processing_job_repository = processing_job_repository
         self._metadata_repository = metadata_repository
@@ -72,29 +73,40 @@ class RegisterCollectedNewsItem:
         self,
         item: CollectedNewsItem,
     ) -> RegisterCollectedNewsItemResult:
-        resolved = self._resolver.resolve(item.source_url)
+        source = self._sources.get(item.source_id)
 
-        if resolved.source.source_id != item.source_id:
+        if source is None:
             raise CollectedNewsItemMismatchError(
-                "Collected item source does not match the resolved news source"
+                "Collected item source does not match a registered news source"
             )
 
-        if resolved.canonical_url != item.canonical_url:
+        if not self._matches_source_host(
+            source,
+            item.source_url,
+        ):
             raise CollectedNewsItemMismatchError(
-                "Collected item canonical URL does not match the resolved canonical URL"
+                "Collected item source does not match the registered news source"
             )
 
-        if self._intake_repository.exists_by_canonical_url(resolved.canonical_url):
+        if not self._matches_source_host(
+            source,
+            item.canonical_url,
+        ):
+            raise CollectedNewsItemMismatchError(
+                "Collected item source does not match the registered news source"
+            )
+
+        if self._intake_repository.exists_by_canonical_url(item.canonical_url):
             return RegisterCollectedNewsItemResult(
                 status=(CollectedNewsRegistrationStatus.DUPLICATE),
-                canonical_url=resolved.canonical_url,
+                canonical_url=item.canonical_url,
             )
 
         intake = ManualNewsIntake(
             intake_id=self._intake_id_factory(),
-            source_id=resolved.source.source_id,
+            source_id=source.source_id,
             submitted_url=item.source_url,
-            canonical_url=resolved.canonical_url,
+            canonical_url=item.canonical_url,
             submitted_at=item.collected_at,
         )
 
@@ -103,7 +115,7 @@ class RegisterCollectedNewsItem:
         except ManualNewsIntakeAlreadyExistsError:
             return RegisterCollectedNewsItemResult(
                 status=(CollectedNewsRegistrationStatus.DUPLICATE),
-                canonical_url=resolved.canonical_url,
+                canonical_url=item.canonical_url,
             )
 
         processing_job = NewsProcessingJob.pending(
@@ -122,8 +134,19 @@ class RegisterCollectedNewsItem:
 
         return RegisterCollectedNewsItemResult(
             status=(CollectedNewsRegistrationStatus.REGISTERED),
-            canonical_url=resolved.canonical_url,
+            canonical_url=item.canonical_url,
             intake=stored_intake,
             processing_job=stored_job,
             article_metadata=stored_metadata,
         )
+
+    @staticmethod
+    def _matches_source_host(
+        source: NewsSource,
+        url: str,
+    ) -> bool:
+        source_host = (urlsplit(source.base_url).hostname or "").casefold()
+        parsed = urlsplit(url)
+        item_host = (parsed.hostname or "").casefold()
+
+        return parsed.scheme == "https" and bool(source_host) and item_host == source_host
