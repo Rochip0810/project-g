@@ -4,6 +4,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TextIO
 
+from redis import Redis
+from redis.exceptions import RedisError
 from sqlalchemy.orm import Session, sessionmaker
 
 from project_g.application.news.create_article_metadata import (
@@ -14,6 +16,9 @@ from project_g.application.news.create_manual_intake import (
 )
 from project_g.application.news.create_processing_job import (
     CreateNewsProcessingJob,
+)
+from project_g.application.news.enqueue_metadata_processing import (
+    EnqueueNewsMetadataProcessing,
 )
 from project_g.application.news.initial_sources import (
     INITIAL_NEWS_SOURCES,
@@ -37,6 +42,16 @@ from project_g.infrastructure.database.repositories import (
     SqlAlchemyNewsArticleMetadataRepository,
     SqlAlchemyNewsProcessingJobRepository,
     SqlAlchemyNewsSourceRepository,
+)
+from project_g.infrastructure.queue import (
+    create_redis_connection_pool,
+)
+from project_g.infrastructure.queue.rq_provider import (
+    RQQueueProvider,
+)
+from project_g.ports.queue import (
+    JobSnapshot,
+    QueueProvider,
 )
 from project_g.ports.repositories import (
     ManualNewsIntakeAlreadyExistsError,
@@ -111,6 +126,61 @@ def create_manual_intake_and_job(
         intake=intake,
         processing_job=processing_job,
         article_metadata=article_metadata,
+    )
+
+
+def enqueue_submission(
+    *,
+    queue_provider: QueueProvider,
+    submission: SubmittedNewsUrl,
+) -> JobSnapshot:
+    return EnqueueNewsMetadataProcessing(
+        queue_provider=queue_provider,
+    ).execute(submission.processing_job)
+
+
+def enqueue_submission_with_rq(
+    *,
+    settings: Settings,
+    submission: SubmittedNewsUrl,
+) -> JobSnapshot:
+    connection_pool = create_redis_connection_pool(
+        settings,
+        decode_responses=False,
+    )
+    connection = Redis.from_pool(connection_pool)
+
+    try:
+        provider = RQQueueProvider(
+            settings,
+            connection,
+        )
+
+        return enqueue_submission(
+            queue_provider=provider,
+            submission=submission,
+        )
+    finally:
+        connection.close()
+        connection_pool.close()
+
+
+def print_queue_result(
+    snapshot: JobSnapshot,
+    *,
+    output: TextIO,
+) -> None:
+    print(
+        f"queue_job_id={snapshot.job_id}",
+        file=output,
+    )
+    print(
+        f"queue_name={snapshot.queue.value}",
+        file=output,
+    )
+    print(
+        f"queue_status={snapshot.status}",
+        file=output,
     )
 
 
@@ -202,8 +272,32 @@ def main(
     finally:
         engine.dispose()
 
+    try:
+        queue_snapshot = enqueue_submission_with_rq(
+            settings=settings,
+            submission=submission,
+        )
+    except RedisError as error:
+        print(
+            "status=queue_failed",
+            file=sys.stderr,
+        )
+        print(
+            f"intake_id={submission.intake.intake_id}",
+            file=sys.stderr,
+        )
+        print(
+            "message=News URL was saved but queue submission failed",
+            file=sys.stderr,
+        )
+        raise SystemExit(6) from error
+
     print_submission(
         submission,
+        output=sys.stdout,
+    )
+    print_queue_result(
+        queue_snapshot,
         output=sys.stdout,
     )
 

@@ -86,3 +86,80 @@ def test_print_submission_displays_all_records() -> None:
     assert "processing_attempt_count=0" in text
     assert f"article_metadata_id={_METADATA_ID}" in text
     assert "article_metadata_status=pending" in text
+
+
+def test_submission_is_enqueued_after_creation() -> None:
+    from collections.abc import Mapping, Sequence
+
+    from project_g.interfaces.management.submit_news_url import (
+        enqueue_submission,
+    )
+    from project_g.ports.queue import (
+        JobArgument,
+        JobSnapshot,
+        QueueName,
+    )
+
+    class FakeQueueProvider:
+        def __init__(self) -> None:
+            self.function_path: str | None = None
+            self.args: Sequence[JobArgument] = ()
+
+        def enqueue(
+            self,
+            queue_name: QueueName,
+            function_path: str,
+            *,
+            args: Sequence[JobArgument] = (),
+            kwargs: Mapping[str, JobArgument] | None = None,
+            job_id: str | None = None,
+            description: str | None = None,
+        ) -> JobSnapshot:
+            self.function_path = function_path
+            self.args = args
+
+            return JobSnapshot(
+                job_id=job_id or "generated",
+                queue=queue_name,
+                status="queued",
+            )
+
+    provider = FakeQueueProvider()
+    submission = _submission()
+
+    snapshot = enqueue_submission(
+        queue_provider=provider,
+        submission=submission,
+    )
+
+    assert provider.function_path == ("project_g.interfaces.workers.jobs.process_news_metadata")
+    assert provider.args == [str(_INTAKE_ID)]
+    assert snapshot.queue is QueueName.DEFAULT
+    assert snapshot.status == "queued"
+
+
+def test_print_queue_result_displays_queue_state() -> None:
+    from project_g.interfaces.management.submit_news_url import (
+        print_queue_result,
+    )
+    from project_g.ports.queue import (
+        JobSnapshot,
+        QueueName,
+    )
+
+    output = StringIO()
+
+    print_queue_result(
+        JobSnapshot(
+            job_id="news-metadata-test",
+            queue=QueueName.DEFAULT,
+            status="queued",
+        ),
+        output=output,
+    )
+
+    text = output.getvalue()
+
+    assert "queue_job_id=news-metadata-test" in text
+    assert "queue_name=default" in text
+    assert "queue_status=queued" in text
