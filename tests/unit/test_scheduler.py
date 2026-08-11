@@ -237,3 +237,29 @@ def test_scheduler_entrypoint_can_be_imported() -> None:
     from project_g.interfaces.scheduler import main
 
     assert callable(main)
+
+
+def test_scheduler_enqueues_news_discovery_into_default_queue() -> None:
+    settings = _create_settings()
+    provider = RQQueueProvider(
+        settings,
+        _create_connection(),
+    )
+    scheduler_lock = AvailableLock()
+
+    scheduler = SchedulerService(
+        settings,
+        provider,
+        scheduler_lock,
+        clock=_fixed_clock,
+    )
+
+    result = scheduler.run_once()
+
+    assert result.status is SchedulerRunStatus.ENQUEUED
+    assert result.discovery_job_id is not None
+
+    job = provider.get_queue(QueueName.DEFAULT).fetch_job(result.discovery_job_id)
+
+    assert job is not None
+    assert job.func_name == ("project_g.interfaces.workers.jobs.discover_giants_news")

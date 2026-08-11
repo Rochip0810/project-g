@@ -25,6 +25,7 @@ class SchedulerRunStatus(StrEnum):
 class SchedulerIterationResult:
     status: SchedulerRunStatus
     job_id: str | None
+    discovery_job_id: str | None = None
 
 
 class SchedulerService:
@@ -42,55 +43,91 @@ class SchedulerService:
         self._clock = clock if clock is not None else lambda: datetime.now(UTC)
         self._logger = get_logger("project_g.scheduler")
 
+    def _time_bucket(
+        self,
+        current_time: datetime,
+    ) -> int:
+        interval = self._settings.scheduler_interval_seconds
+        return int(current_time.timestamp()) // interval
+
     def _create_heartbeat_job_id(
         self,
         current_time: datetime,
     ) -> str:
-        interval = self._settings.scheduler_interval_seconds
-        time_bucket = int(current_time.timestamp()) // interval
+        return f"system-heartbeat-{self._time_bucket(current_time)}"
 
-        return f"system-heartbeat-{time_bucket}"
+    def _create_discovery_job_id(
+        self,
+        current_time: datetime,
+    ) -> str:
+        return f"news-discovery-giants-{self._time_bucket(current_time)}"
 
     def run_once(self) -> SchedulerIterationResult:
         if not self._scheduler_lock.acquire():
             return SchedulerIterationResult(
                 status=SchedulerRunStatus.SKIPPED_LOCKED,
                 job_id=None,
+                discovery_job_id=None,
             )
 
         try:
-            job_id = self._create_heartbeat_job_id(self._clock())
+            current_time = self._clock()
+
+            heartbeat_job_id = self._create_heartbeat_job_id(current_time)
+            discovery_job_id = self._create_discovery_job_id(current_time)
+
+            enqueued_any = False
 
             try:
                 self._queue_provider.enqueue(
                     QueueName.SYSTEM,
                     ("project_g.interfaces.workers.jobs.system_heartbeat"),
                     kwargs={"source": "scheduler"},
-                    job_id=job_id,
-                    description="Project G system heartbeat",
+                    job_id=heartbeat_job_id,
+                    description=("Project G system heartbeat"),
                 )
             except DuplicateJobError:
-                return SchedulerIterationResult(
-                    status=(SchedulerRunStatus.SKIPPED_DUPLICATE),
-                    job_id=job_id,
+                pass
+            else:
+                enqueued_any = True
+
+            try:
+                self._queue_provider.enqueue(
+                    QueueName.DEFAULT,
+                    ("project_g.interfaces.workers.jobs.discover_giants_news"),
+                    job_id=discovery_job_id,
+                    description=("Discover Giants news"),
                 )
+            except DuplicateJobError:
+                pass
+            else:
+                enqueued_any = True
 
             return SchedulerIterationResult(
-                status=SchedulerRunStatus.ENQUEUED,
-                job_id=job_id,
+                status=(
+                    SchedulerRunStatus.ENQUEUED
+                    if enqueued_any
+                    else SchedulerRunStatus.SKIPPED_DUPLICATE
+                ),
+                job_id=heartbeat_job_id,
+                discovery_job_id=discovery_job_id,
             )
         finally:
             self._scheduler_lock.release()
 
-    def run_forever(self, stop_event: Event) -> None:
+    def run_forever(
+        self,
+        stop_event: Event,
+    ) -> None:
         while not stop_event.is_set():
             result = self.run_once()
 
             self._logger.info(
                 "scheduler_iteration_completed",
-                event_name="scheduler_iteration_completed",
+                event_name=("scheduler_iteration_completed"),
                 status=result.status.value,
                 job_id=result.job_id,
+                discovery_job_id=(result.discovery_job_id),
             )
 
             stop_event.wait(self._settings.scheduler_interval_seconds)
