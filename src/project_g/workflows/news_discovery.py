@@ -9,9 +9,6 @@ from project_g.application.news.enqueue_collected_item import (
 from project_g.application.news.initial_sources import (
     INITIAL_NEWS_SOURCES,
 )
-from project_g.application.news.manual_url import (
-    ManualNewsUrlResolver,
-)
 from project_g.application.news.register_collected_item import (
     RegisterCollectedNewsItem,
 )
@@ -57,7 +54,7 @@ class SqlAlchemyCollectionRegistrationRunner:
     ) -> RegisterCollectionResultSummary:
         with self._session_factory.begin() as session:
             registrar = RegisterCollectedNewsItem(
-                resolver=ManualNewsUrlResolver(INITIAL_NEWS_SOURCES),
+                sources=INITIAL_NEWS_SOURCES,
                 intake_repository=(SqlAlchemyManualNewsIntakeRepository(session)),
                 processing_job_repository=(SqlAlchemyNewsProcessingJobRepository(session)),
                 metadata_repository=(SqlAlchemyNewsArticleMetadataRepository(session)),
