@@ -21,6 +21,10 @@ from project_g.domain.news.processing_job import (
     NewsProcessingJob,
     NewsProcessingStatus,
 )
+from project_g.domain.news.relevance_analysis import (
+    NewsRelevanceAnalysis,
+    NewsRelevanceStatus,
+)
 from project_g.ports.repositories.manual_news_intakes import (
     ManualNewsIntakeAlreadyExistsError,
 )
@@ -28,6 +32,7 @@ from project_g.ports.repositories.manual_news_intakes import (
 _INTAKE_ID = UUID("cb28f4c0-75b2-442b-a004-43de5d2cb088")
 _JOB_ID = UUID("0bc157ba-00be-4dbe-a254-cf6bb512c19a")
 _METADATA_ID = UUID("7ea195d0-8b80-4893-bb08-e63ed597af68")
+_ANALYSIS_ID = UUID("6484bbaf-8724-44b3-a376-e03544527d81")
 
 _COLLECTED_AT = datetime(
     2026,
@@ -153,6 +158,43 @@ class FakeMetadataRepository:
         )
 
 
+class FakeRelevanceRepository:
+    def __init__(self) -> None:
+        self.records: dict[
+            UUID,
+            NewsRelevanceAnalysis,
+        ] = {}
+
+    def add(
+        self,
+        analysis: NewsRelevanceAnalysis,
+    ) -> NewsRelevanceAnalysis:
+        self.records[analysis.analysis_id] = analysis
+        return analysis
+
+    def update(
+        self,
+        analysis: NewsRelevanceAnalysis,
+    ) -> NewsRelevanceAnalysis:
+        self.records[analysis.analysis_id] = analysis
+        return analysis
+
+    def get_by_analysis_id(
+        self,
+        analysis_id: UUID,
+    ) -> NewsRelevanceAnalysis | None:
+        return self.records.get(analysis_id)
+
+    def get_by_intake_id(
+        self,
+        intake_id: UUID,
+    ) -> NewsRelevanceAnalysis | None:
+        return next(
+            (analysis for analysis in self.records.values() if analysis.intake_id == intake_id),
+            None,
+        )
+
+
 def _item(
     *,
     source_id: str = "giants_official_news",
@@ -173,15 +215,20 @@ def _service(
     intake_repository: FakeIntakeRepository,
     job_repository: FakeProcessingJobRepository,
     metadata_repository: FakeMetadataRepository,
+    relevance_repository: FakeRelevanceRepository | None = None,
 ) -> RegisterCollectedNewsItem:
     return RegisterCollectedNewsItem(
         sources=INITIAL_NEWS_SOURCES,
         intake_repository=intake_repository,
         processing_job_repository=job_repository,
         metadata_repository=metadata_repository,
+        relevance_repository=(
+            relevance_repository if relevance_repository is not None else FakeRelevanceRepository()
+        ),
         intake_id_factory=lambda: _INTAKE_ID,
         processing_job_id_factory=lambda: _JOB_ID,
         metadata_id_factory=lambda: _METADATA_ID,
+        relevance_analysis_id_factory=lambda: _ANALYSIS_ID,
     )
 
 
@@ -189,23 +236,30 @@ def test_new_collected_item_creates_all_records() -> None:
     intake_repository = FakeIntakeRepository()
     job_repository = FakeProcessingJobRepository()
     metadata_repository = FakeMetadataRepository()
+    relevance_repository = FakeRelevanceRepository()
 
     result = _service(
         intake_repository,
         job_repository,
         metadata_repository,
+        relevance_repository,
     ).execute(_item())
 
     assert result.status is CollectedNewsRegistrationStatus.REGISTERED
     assert result.intake is not None
     assert result.processing_job is not None
     assert result.article_metadata is not None
+    assert result.relevance_analysis is not None
 
     assert result.intake.intake_id == _INTAKE_ID
     assert result.intake.canonical_url == ("https://www.giants.jp/news/123456/")
 
     assert result.processing_job.status is NewsProcessingStatus.PENDING
     assert result.article_metadata.status is NewsMetadataStatus.PENDING
+    assert result.relevance_analysis.analysis_id == _ANALYSIS_ID
+    assert result.relevance_analysis.status is NewsRelevanceStatus.PENDING
+    assert result.relevance_analysis.relevance_score is None
+    assert result.relevance_analysis.decision is None
 
 
 def test_duplicate_collected_item_is_skipped() -> None:
@@ -222,18 +276,22 @@ def test_duplicate_collected_item_is_skipped() -> None:
 
     job_repository = FakeProcessingJobRepository()
     metadata_repository = FakeMetadataRepository()
+    relevance_repository = FakeRelevanceRepository()
 
     result = _service(
         intake_repository,
         job_repository,
         metadata_repository,
+        relevance_repository,
     ).execute(_item())
 
     assert result.status is CollectedNewsRegistrationStatus.DUPLICATE
     assert result.processing_job is None
     assert result.article_metadata is None
+    assert result.relevance_analysis is None
     assert job_repository.jobs == {}
     assert metadata_repository.records == {}
+    assert relevance_repository.records == {}
 
 
 def test_collected_item_source_mismatch_is_rejected() -> None:

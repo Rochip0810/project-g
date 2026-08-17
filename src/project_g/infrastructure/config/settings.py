@@ -89,6 +89,14 @@ class Settings(BaseSettings):
         max_length=200,
     )
 
+    openai_api_key: SecretStr = SecretStr("")
+    openai_relevance_model: str = "gpt-5.6-luna"
+    openai_request_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        le=120,
+    )
+
     publishing_enabled: bool = False
 
     @model_validator(mode="after")

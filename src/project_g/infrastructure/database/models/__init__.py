@@ -7,6 +7,9 @@ from project_g.infrastructure.database.models.news_article_metadata import (
 from project_g.infrastructure.database.models.news_processing_job import (
     NewsProcessingJobRecord,
 )
+from project_g.infrastructure.database.models.news_relevance_analysis import (
+    NewsRelevanceAnalysisRecord,
+)
 from project_g.infrastructure.database.models.news_source import (
     NewsSourceRecord,
 )
@@ -15,5 +18,6 @@ __all__ = [
     "ManualNewsIntakeRecord",
     "NewsArticleMetadataRecord",
     "NewsProcessingJobRecord",
+    "NewsRelevanceAnalysisRecord",
     "NewsSourceRecord",
 ]

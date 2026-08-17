@@ -12,6 +12,11 @@ from project_g.ports.repositories.news_processing_jobs import (
     NewsProcessingJobNotFoundError,
     NewsProcessingJobRepository,
 )
+from project_g.ports.repositories.news_relevance_analyses import (
+    NewsRelevanceAnalysisAlreadyExistsError,
+    NewsRelevanceAnalysisNotFoundError,
+    NewsRelevanceAnalysisRepository,
+)
 from project_g.ports.repositories.news_sources import (
     NewsSourceAlreadyExistsError,
     NewsSourceRepository,
@@ -27,6 +32,9 @@ __all__ = [
     "NewsProcessingJobAlreadyExistsError",
     "NewsProcessingJobNotFoundError",
     "NewsProcessingJobRepository",
+    "NewsRelevanceAnalysisAlreadyExistsError",
+    "NewsRelevanceAnalysisNotFoundError",
+    "NewsRelevanceAnalysisRepository",
     "NewsSourceAlreadyExistsError",
     "NewsSourceRepository",
     "StoredNewsSourceNotFoundError",

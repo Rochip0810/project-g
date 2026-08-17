@@ -17,6 +17,9 @@ from project_g.domain.news.manual_intake import (
 from project_g.domain.news.processing_job import (
     NewsProcessingJob,
 )
+from project_g.domain.news.relevance_analysis import (
+    NewsRelevanceAnalysis,
+)
 from project_g.ports.repositories.manual_news_intakes import (
     ManualNewsIntakeAlreadyExistsError,
     ManualNewsIntakeRepository,
@@ -26,6 +29,9 @@ from project_g.ports.repositories.news_article_metadata import (
 )
 from project_g.ports.repositories.news_processing_jobs import (
     NewsProcessingJobRepository,
+)
+from project_g.ports.repositories.news_relevance_analyses import (
+    NewsRelevanceAnalysisRepository,
 )
 
 IdFactory = Callable[[], UUID]
@@ -47,6 +53,7 @@ class RegisterCollectedNewsItemResult:
     intake: ManualNewsIntake | None = None
     processing_job: NewsProcessingJob | None = None
     article_metadata: NewsArticleMetadata | None = None
+    relevance_analysis: NewsRelevanceAnalysis | None = None
 
 
 class RegisterCollectedNewsItem:
@@ -57,17 +64,21 @@ class RegisterCollectedNewsItem:
         intake_repository: ManualNewsIntakeRepository,
         processing_job_repository: NewsProcessingJobRepository,
         metadata_repository: NewsArticleMetadataRepository,
+        relevance_repository: NewsRelevanceAnalysisRepository,
         intake_id_factory: IdFactory = uuid4,
         processing_job_id_factory: IdFactory = uuid4,
         metadata_id_factory: IdFactory = uuid4,
+        relevance_analysis_id_factory: IdFactory = uuid4,
     ) -> None:
         self._sources = {source.source_id: source for source in sources}
         self._intake_repository = intake_repository
         self._processing_job_repository = processing_job_repository
         self._metadata_repository = metadata_repository
+        self._relevance_repository = relevance_repository
         self._intake_id_factory = intake_id_factory
         self._processing_job_id_factory = processing_job_id_factory
         self._metadata_id_factory = metadata_id_factory
+        self._relevance_analysis_id_factory = relevance_analysis_id_factory
 
     def execute(
         self,
@@ -132,12 +143,20 @@ class RegisterCollectedNewsItem:
         )
         stored_metadata = self._metadata_repository.add(metadata)
 
+        relevance_analysis = NewsRelevanceAnalysis.pending(
+            analysis_id=self._relevance_analysis_id_factory(),
+            intake_id=stored_intake.intake_id,
+            created_at=item.collected_at,
+        )
+        stored_relevance_analysis = self._relevance_repository.add(relevance_analysis)
+
         return RegisterCollectedNewsItemResult(
             status=(CollectedNewsRegistrationStatus.REGISTERED),
             canonical_url=item.canonical_url,
             intake=stored_intake,
             processing_job=stored_job,
             article_metadata=stored_metadata,
+            relevance_analysis=stored_relevance_analysis,
         )
 
     @staticmethod

@@ -25,6 +25,7 @@ from project_g.infrastructure.database.repositories import (
     SqlAlchemyManualNewsIntakeRepository,
     SqlAlchemyNewsArticleMetadataRepository,
     SqlAlchemyNewsProcessingJobRepository,
+    SqlAlchemyNewsRelevanceAnalysisRepository,
 )
 from project_g.ports import NewsCollector
 from project_g.ports.queue import (
@@ -58,6 +59,7 @@ class SqlAlchemyCollectionRegistrationRunner:
                 intake_repository=(SqlAlchemyManualNewsIntakeRepository(session)),
                 processing_job_repository=(SqlAlchemyNewsProcessingJobRepository(session)),
                 metadata_repository=(SqlAlchemyNewsArticleMetadataRepository(session)),
+                relevance_repository=(SqlAlchemyNewsRelevanceAnalysisRepository(session)),
             )
 
             return RegisterCollectionResult(
