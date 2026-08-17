@@ -15,6 +15,8 @@ from project_g.ports.queue import QueueName
 Clock = Callable[[], datetime]
 
 HOCHI_DISCOVERY_INTERVAL_SECONDS = 300
+RELEVANCE_RECOVERY_INTERVAL_SECONDS = 300
+RELEVANCE_RECOVERY_LIMIT = 5
 
 
 class SchedulerRunStatus(StrEnum):
@@ -29,6 +31,7 @@ class SchedulerIterationResult:
     job_id: str | None
     discovery_job_id: str | None = None
     hochi_discovery_job_id: str | None = None
+    relevance_recovery_job_id: str | None = None
 
 
 class SchedulerService:
@@ -84,6 +87,16 @@ class SchedulerService:
         )
         return f"news-discovery-hochi-{bucket}"
 
+    def _create_relevance_recovery_job_id(
+        self,
+        current_time: datetime,
+    ) -> str:
+        bucket = self._time_bucket(
+            current_time,
+            interval_seconds=(RELEVANCE_RECOVERY_INTERVAL_SECONDS),
+        )
+        return f"news-relevance-recovery-{bucket}"
+
     def run_once(self) -> SchedulerIterationResult:
         if not self._scheduler_lock.acquire():
             return SchedulerIterationResult(
@@ -91,6 +104,7 @@ class SchedulerService:
                 job_id=None,
                 discovery_job_id=None,
                 hochi_discovery_job_id=None,
+                relevance_recovery_job_id=None,
             )
 
         try:
@@ -99,6 +113,7 @@ class SchedulerService:
             heartbeat_job_id = self._create_heartbeat_job_id(current_time)
             discovery_job_id = self._create_discovery_job_id(current_time)
             hochi_discovery_job_id = self._create_hochi_discovery_job_id(current_time)
+            relevance_recovery_job_id = self._create_relevance_recovery_job_id(current_time)
 
             enqueued_any = False
 
@@ -140,6 +155,21 @@ class SchedulerService:
             else:
                 enqueued_any = True
 
+            try:
+                self._queue_provider.enqueue(
+                    QueueName.DEFAULT,
+                    ("project_g.interfaces.workers.jobs.recover_pending_news_relevance"),
+                    kwargs={
+                        "limit": RELEVANCE_RECOVERY_LIMIT,
+                    },
+                    job_id=relevance_recovery_job_id,
+                    description=("Recover pending news relevance analyses"),
+                )
+            except DuplicateJobError:
+                pass
+            else:
+                enqueued_any = True
+
             return SchedulerIterationResult(
                 status=(
                     SchedulerRunStatus.ENQUEUED
@@ -149,6 +179,7 @@ class SchedulerService:
                 job_id=heartbeat_job_id,
                 discovery_job_id=discovery_job_id,
                 hochi_discovery_job_id=(hochi_discovery_job_id),
+                relevance_recovery_job_id=(relevance_recovery_job_id),
             )
         finally:
             self._scheduler_lock.release()
@@ -167,6 +198,7 @@ class SchedulerService:
                 job_id=result.job_id,
                 discovery_job_id=(result.discovery_job_id),
                 hochi_discovery_job_id=(result.hochi_discovery_job_id),
+                relevance_recovery_job_id=(result.relevance_recovery_job_id),
             )
 
             stop_event.wait(self._settings.scheduler_interval_seconds)

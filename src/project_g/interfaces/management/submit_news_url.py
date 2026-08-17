@@ -17,6 +17,9 @@ from project_g.application.news.create_manual_intake import (
 from project_g.application.news.create_processing_job import (
     CreateNewsProcessingJob,
 )
+from project_g.application.news.create_relevance_analysis import (
+    CreateNewsRelevanceAnalysis,
+)
 from project_g.application.news.enqueue_metadata_processing import (
     EnqueueNewsMetadataProcessing,
 )
@@ -35,12 +38,16 @@ from project_g.domain.news.article_metadata import (
 )
 from project_g.domain.news.manual_intake import ManualNewsIntake
 from project_g.domain.news.processing_job import NewsProcessingJob
+from project_g.domain.news.relevance_analysis import (
+    NewsRelevanceAnalysis,
+)
 from project_g.infrastructure.config import Settings
 from project_g.infrastructure.database import create_database_engine
 from project_g.infrastructure.database.repositories import (
     SqlAlchemyManualNewsIntakeRepository,
     SqlAlchemyNewsArticleMetadataRepository,
     SqlAlchemyNewsProcessingJobRepository,
+    SqlAlchemyNewsRelevanceAnalysisRepository,
     SqlAlchemyNewsSourceRepository,
 )
 from project_g.infrastructure.queue import (
@@ -57,6 +64,7 @@ from project_g.ports.repositories import (
     ManualNewsIntakeAlreadyExistsError,
     NewsArticleMetadataAlreadyExistsError,
     NewsProcessingJobAlreadyExistsError,
+    NewsRelevanceAnalysisAlreadyExistsError,
 )
 
 
@@ -65,6 +73,7 @@ class SubmittedNewsUrl:
     intake: ManualNewsIntake
     processing_job: NewsProcessingJob
     article_metadata: NewsArticleMetadata
+    relevance_analysis: NewsRelevanceAnalysis
 
 
 def parse_arguments(
@@ -73,7 +82,7 @@ def parse_arguments(
     parser = ArgumentParser(
         description=(
             "Register one news URL and create its pending "
-            "processing job and metadata record without "
+            "processing job, metadata, and relevance-analysis records without "
             "fetching article content."
         )
     )
@@ -122,10 +131,16 @@ def create_manual_intake_and_job(
         repository=metadata_repository,
     ).execute(intake.intake_id)
 
+    relevance_repository = SqlAlchemyNewsRelevanceAnalysisRepository(session)
+    relevance_analysis = CreateNewsRelevanceAnalysis(
+        repository=relevance_repository,
+    ).execute(intake.intake_id)
+
     return SubmittedNewsUrl(
         intake=intake,
         processing_job=processing_job,
         article_metadata=article_metadata,
+        relevance_analysis=relevance_analysis,
     )
 
 
@@ -192,6 +207,7 @@ def print_submission(
     intake = submission.intake
     job = submission.processing_job
     metadata = submission.article_metadata
+    relevance = submission.relevance_analysis
 
     print("status=created", file=output)
     print(f"intake_id={intake.intake_id}", file=output)
@@ -217,6 +233,14 @@ def print_submission(
     )
     print(
         f"article_metadata_status={metadata.status.value}",
+        file=output,
+    )
+    print(
+        f"relevance_analysis_id={relevance.analysis_id}",
+        file=output,
+    )
+    print(
+        f"relevance_analysis_status={relevance.status.value}",
         file=output,
     )
 
@@ -265,6 +289,16 @@ def main(
             file=sys.stderr,
         )
         raise SystemExit(5) from error
+    except NewsRelevanceAnalysisAlreadyExistsError as error:
+        print(
+            "status=relevance_analysis_duplicate",
+            file=sys.stderr,
+        )
+        print(
+            f"intake_id={error.intake_id}",
+            file=sys.stderr,
+        )
+        raise SystemExit(7) from error
     except ManualNewsUrlError as error:
         print("status=rejected", file=sys.stderr)
         print(f"message={error}", file=sys.stderr)

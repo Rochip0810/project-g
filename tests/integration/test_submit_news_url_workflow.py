@@ -12,10 +12,14 @@ from project_g.domain.news.article_metadata import (
 from project_g.domain.news.processing_job import (
     NewsProcessingStatus,
 )
+from project_g.domain.news.relevance_analysis import (
+    NewsRelevanceStatus,
+)
 from project_g.infrastructure.database.repositories import (
     SqlAlchemyManualNewsIntakeRepository,
     SqlAlchemyNewsArticleMetadataRepository,
     SqlAlchemyNewsProcessingJobRepository,
+    SqlAlchemyNewsRelevanceAnalysisRepository,
 )
 from project_g.interfaces.management.submit_news_url import (
     create_manual_intake_and_job,
@@ -52,10 +56,12 @@ def test_url_submission_creates_job_and_metadata(
     intake_repository = SqlAlchemyManualNewsIntakeRepository(migrated_session)
     job_repository = SqlAlchemyNewsProcessingJobRepository(migrated_session)
     metadata_repository = SqlAlchemyNewsArticleMetadataRepository(migrated_session)
+    relevance_repository = SqlAlchemyNewsRelevanceAnalysisRepository(migrated_session)
 
     stored_intake = intake_repository.get_by_canonical_url("https://www.giants.jp/news/987654/")
     stored_job = job_repository.get_by_intake_id(submission.intake.intake_id)
     stored_metadata = metadata_repository.get_by_intake_id(submission.intake.intake_id)
+    stored_relevance = relevance_repository.get_by_intake_id(submission.intake.intake_id)
 
     assert stored_intake == submission.intake
 
@@ -69,3 +75,11 @@ def test_url_submission_creates_job_and_metadata(
     assert stored_metadata.status is NewsMetadataStatus.PENDING
     assert stored_metadata.title is None
     assert stored_metadata.failure_reason is None
+
+    assert stored_relevance == submission.relevance_analysis
+    assert stored_relevance is not None
+    assert stored_relevance.status is NewsRelevanceStatus.PENDING
+    assert stored_relevance.relevance_score is None
+    assert stored_relevance.decision is None
+    assert stored_relevance.reason is None
+    assert stored_relevance.failure_reason is None
