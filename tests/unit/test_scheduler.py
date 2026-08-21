@@ -449,3 +449,96 @@ def test_relevance_recovery_uses_five_minute_time_bucket() -> None:
     ]
 
     assert len(recovery_jobs) == 2
+
+
+def test_scheduler_enqueues_priority_recovery_into_default_queue() -> None:
+    settings = _create_settings()
+    provider = RQQueueProvider(
+        settings,
+        _create_connection(),
+    )
+    scheduler_lock = AvailableLock()
+
+    scheduler = SchedulerService(
+        settings,
+        provider,
+        scheduler_lock,
+        clock=_fixed_clock,
+    )
+
+    result = scheduler.run_once()
+
+    assert result.status is SchedulerRunStatus.ENQUEUED
+    assert result.priority_recovery_job_id is not None
+
+    job = provider.get_queue(QueueName.DEFAULT).fetch_job(result.priority_recovery_job_id)
+
+    assert job is not None
+    assert job.func_name == ("project_g.interfaces.workers.jobs.recover_pending_news_priority")
+    assert job.kwargs == {"limit": 5}
+
+
+def test_priority_recovery_uses_five_minute_time_bucket() -> None:
+    settings = _create_settings()
+    provider = RQQueueProvider(
+        settings,
+        _create_connection(),
+    )
+    scheduler_lock = AvailableLock()
+
+    times = iter(
+        [
+            datetime(
+                2026,
+                8,
+                21,
+                11,
+                0,
+                30,
+                tzinfo=UTC,
+            ),
+            datetime(
+                2026,
+                8,
+                21,
+                11,
+                1,
+                30,
+                tzinfo=UTC,
+            ),
+            datetime(
+                2026,
+                8,
+                21,
+                11,
+                5,
+                30,
+                tzinfo=UTC,
+            ),
+        ]
+    )
+
+    scheduler = SchedulerService(
+        settings,
+        provider,
+        scheduler_lock,
+        clock=lambda: next(times),
+    )
+
+    first = scheduler.run_once()
+    second = scheduler.run_once()
+    third = scheduler.run_once()
+
+    assert first.priority_recovery_job_id is not None
+    assert second.priority_recovery_job_id == first.priority_recovery_job_id
+    assert third.priority_recovery_job_id != first.priority_recovery_job_id
+
+    queue = provider.get_queue(QueueName.DEFAULT)
+
+    recovery_jobs = [
+        job
+        for job in queue.jobs
+        if job.func_name == ("project_g.interfaces.workers.jobs.recover_pending_news_priority")
+    ]
+
+    assert len(recovery_jobs) == 2
