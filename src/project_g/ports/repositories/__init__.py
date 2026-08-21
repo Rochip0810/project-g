@@ -7,6 +7,11 @@ from project_g.ports.repositories.news_article_metadata import (
     NewsArticleMetadataNotFoundError,
     NewsArticleMetadataRepository,
 )
+from project_g.ports.repositories.news_priority_analyses import (
+    NewsPriorityAnalysisAlreadyExistsError,
+    NewsPriorityAnalysisNotFoundError,
+    NewsPriorityAnalysisRepository,
+)
 from project_g.ports.repositories.news_processing_jobs import (
     NewsProcessingJobAlreadyExistsError,
     NewsProcessingJobNotFoundError,
@@ -29,6 +34,9 @@ __all__ = [
     "NewsArticleMetadataAlreadyExistsError",
     "NewsArticleMetadataNotFoundError",
     "NewsArticleMetadataRepository",
+    "NewsPriorityAnalysisAlreadyExistsError",
+    "NewsPriorityAnalysisNotFoundError",
+    "NewsPriorityAnalysisRepository",
     "NewsProcessingJobAlreadyExistsError",
     "NewsProcessingJobNotFoundError",
     "NewsProcessingJobRepository",

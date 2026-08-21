@@ -6,10 +6,18 @@ from rq.exceptions import DuplicateJobError
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from project_g.application.news.analyze_priority import AnalyzeNewsPriority
 from project_g.application.news.analyze_relevance import AnalyzeNewsRelevance
+from project_g.application.news.create_priority_analysis import CreateNewsPriorityAnalysis
+from project_g.application.news.enqueue_priority_analysis import EnqueueNewsPriorityAnalysis
 from project_g.application.news.enqueue_relevance_analysis import EnqueueNewsRelevanceAnalysis
 from project_g.domain.news.article_metadata import NewsMetadataStatus
-from project_g.domain.news.relevance_analysis import NewsRelevanceStatus
+from project_g.domain.news.priority_analysis import NewsPriorityStatus
+from project_g.domain.news.relevance_analysis import (
+    NewsRelevanceDecision,
+    NewsRelevanceStatus,
+)
+from project_g.infrastructure.ai.openai_priority import OpenAIPriorityAnalyzer
 from project_g.infrastructure.ai.openai_relevance import OpenAIRelevanceAnalyzer
 from project_g.infrastructure.collectors import (
     GiantsOfficialNewsCollector,
@@ -23,11 +31,13 @@ from project_g.infrastructure.database import (
 )
 from project_g.infrastructure.database.models import (
     NewsArticleMetadataRecord,
+    NewsPriorityAnalysisRecord,
     NewsRelevanceAnalysisRecord,
 )
 from project_g.infrastructure.database.repositories import (
     SqlAlchemyManualNewsIntakeRepository,
     SqlAlchemyNewsArticleMetadataRepository,
+    SqlAlchemyNewsPriorityAnalysisRepository,
     SqlAlchemyNewsRelevanceAnalysisRepository,
     SqlAlchemyNewsSourceRepository,
 )
@@ -137,7 +147,7 @@ def process_news_metadata(
 def process_news_relevance(
     intake_id: str,
 ) -> dict[str, str | int]:
-    """Analyze one queued news item for Giants relevance."""
+    """Analyze relevance and hand eligible news to priority analysis."""
     try:
         parsed_intake_id = UUID(intake_id)
     except ValueError as error:
@@ -157,6 +167,9 @@ def process_news_relevance(
         expire_on_commit=False,
     )
 
+    priority_analysis = None
+    decision: NewsRelevanceDecision | None = None
+
     try:
         with factory.begin() as session:
             service = AnalyzeNewsRelevance(
@@ -167,20 +180,114 @@ def process_news_relevance(
             )
 
             result = service.execute(parsed_intake_id)
+            decision = result.analysis.decision
+
+            if decision is None:
+                raise RuntimeError("Analyzed relevance result has no decision")
+
+            if decision in (
+                NewsRelevanceDecision.ACCEPTED,
+                NewsRelevanceDecision.REVIEW,
+            ):
+                priority_repository = SqlAlchemyNewsPriorityAnalysisRepository(session)
+
+                priority_analysis = priority_repository.get_by_intake_id(parsed_intake_id)
+
+                if priority_analysis is None:
+                    priority_analysis = CreateNewsPriorityAnalysis(
+                        repository=priority_repository
+                    ).execute(parsed_intake_id)
     finally:
         engine.dispose()
 
-    decision = result.analysis.decision
-
     if decision is None:
         raise RuntimeError("Analyzed relevance result has no decision")
+
+    priority_queue_status = "skipped"
+    priority_job_id = ""
+
+    if priority_analysis is not None and priority_analysis.status is NewsPriorityStatus.PENDING:
+        connection_pool = create_redis_connection_pool(
+            settings,
+            decode_responses=False,
+        )
+        connection = Redis.from_pool(connection_pool)
+
+        try:
+            queue_provider = RQQueueProvider(
+                settings,
+                connection,
+            )
+
+            try:
+                snapshot = EnqueueNewsPriorityAnalysis(queue_provider=queue_provider).execute(
+                    priority_analysis
+                )
+            except DuplicateJobError:
+                priority_queue_status = "duplicate"
+            else:
+                priority_queue_status = snapshot.status
+                priority_job_id = snapshot.job_id
+        finally:
+            connection.close()
+            connection_pool.close()
+
+    elif priority_analysis is not None:
+        priority_queue_status = "already_processed"
 
     return {
         "status": "processed",
         "intake_id": str(result.analysis.intake_id),
         "relevance_status": result.analysis.status.value,
-        "relevance_score": (result.analyzer_result.relevance_score),
+        "relevance_score": result.analyzer_result.relevance_score,
         "decision": decision.value,
+        "priority_queue_status": priority_queue_status,
+        "priority_job_id": priority_job_id,
+    }
+
+
+def process_news_priority(
+    intake_id: str,
+) -> dict[str, str | int]:
+    """Analyze one queued news item for editorial priority."""
+    try:
+        parsed_intake_id = UUID(intake_id)
+    except ValueError as error:
+        raise ValueError(f"Invalid news intake UUID: {intake_id}") from error
+
+    settings = Settings()
+
+    analyzer = OpenAIPriorityAnalyzer(
+        api_key=settings.openai_api_key.get_secret_value(),
+        model=settings.openai_priority_model,
+        timeout_seconds=settings.openai_request_timeout_seconds,
+    )
+
+    engine = create_database_engine(settings)
+    factory = sessionmaker(
+        bind=engine,
+        expire_on_commit=False,
+    )
+
+    try:
+        with factory.begin() as session:
+            service = AnalyzeNewsPriority(
+                intake_repository=(SqlAlchemyManualNewsIntakeRepository(session)),
+                metadata_repository=(SqlAlchemyNewsArticleMetadataRepository(session)),
+                relevance_repository=(SqlAlchemyNewsRelevanceAnalysisRepository(session)),
+                priority_repository=(SqlAlchemyNewsPriorityAnalysisRepository(session)),
+                analyzer=analyzer,
+            )
+
+            result = service.execute(parsed_intake_id)
+    finally:
+        engine.dispose()
+
+    return {
+        "status": "processed",
+        "intake_id": str(result.analysis.intake_id),
+        "priority_status": result.analysis.status.value,
+        "priority_score": result.analyzer_result.priority_score,
     }
 
 
@@ -241,6 +348,99 @@ def recover_pending_news_relevance(
                 connection,
             )
             service = EnqueueNewsRelevanceAnalysis(queue_provider=queue_provider)
+
+            for analysis in analyses:
+                try:
+                    service.execute(analysis)
+                except DuplicateJobError:
+                    duplicate_count += 1
+                else:
+                    enqueued_count += 1
+        finally:
+            connection.close()
+            connection_pool.close()
+
+        return {
+            "status": "processed",
+            "scanned_count": len(analyses),
+            "enqueued_count": enqueued_count,
+            "duplicate_count": duplicate_count,
+        }
+
+    finally:
+        engine.dispose()
+
+
+def recover_pending_news_priority(
+    limit: int = 20,
+) -> dict[str, str | int]:
+    """Re-enqueue ready editorial priority analyses left pending."""
+    if not 1 <= limit <= 100:
+        raise ValueError("limit must be between 1 and 100")
+
+    settings = Settings()
+    engine = create_database_engine(settings)
+    factory = sessionmaker(
+        bind=engine,
+        expire_on_commit=False,
+    )
+
+    try:
+        with factory() as session:
+            statement = (
+                select(NewsPriorityAnalysisRecord)
+                .join(
+                    NewsArticleMetadataRecord,
+                    NewsArticleMetadataRecord.intake_id == NewsPriorityAnalysisRecord.intake_id,
+                )
+                .join(
+                    NewsRelevanceAnalysisRecord,
+                    NewsRelevanceAnalysisRecord.intake_id == NewsPriorityAnalysisRecord.intake_id,
+                )
+                .where(
+                    NewsPriorityAnalysisRecord.status == NewsPriorityStatus.PENDING.value,
+                    NewsArticleMetadataRecord.status.in_(
+                        [
+                            NewsMetadataStatus.EXTRACTED.value,
+                            NewsMetadataStatus.MANUAL.value,
+                        ]
+                    ),
+                    NewsArticleMetadataRecord.title.is_not(None),
+                    NewsRelevanceAnalysisRecord.status == NewsRelevanceStatus.ANALYZED.value,
+                    NewsRelevanceAnalysisRecord.decision.in_(
+                        [
+                            NewsRelevanceDecision.ACCEPTED.value,
+                            NewsRelevanceDecision.REVIEW.value,
+                        ]
+                    ),
+                )
+                .order_by(
+                    NewsPriorityAnalysisRecord.updated_at.asc(),
+                    NewsPriorityAnalysisRecord.analysis_id.asc(),
+                )
+                .limit(limit)
+            )
+
+            records = session.scalars(statement).all()
+
+            analyses = [record.to_domain() for record in records]
+
+        connection_pool = create_redis_connection_pool(
+            settings,
+            decode_responses=False,
+        )
+        connection = Redis.from_pool(connection_pool)
+
+        enqueued_count = 0
+        duplicate_count = 0
+
+        try:
+            queue_provider = RQQueueProvider(
+                settings,
+                connection,
+            )
+
+            service = EnqueueNewsPriorityAnalysis(queue_provider=queue_provider)
 
             for analysis in analyses:
                 try:
