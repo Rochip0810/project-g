@@ -70,3 +70,25 @@ def test_paused_source_can_still_be_used_for_manual_intake() -> None:
 
     assert result.source.source_id == "giants_official_news"
     assert result.source.collectable is False
+
+
+def test_resolver_accepts_hochi_article_outside_source_base_path() -> None:
+    url = "https://hochi.news/articles/20260821-OHT1T51204.html"
+
+    result = _resolver().resolve(url)
+
+    assert result.source.source_id == "hochi_giants_articles"
+    assert result.canonical_url == url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://hochi.news/articles/not-an-article.html",
+        "https://hochi.news/articles/20260821-OTHER51204.html",
+        "https://hochi.news/baseball/20260821-OHT1T51204.html",
+    ],
+)
+def test_resolver_rejects_invalid_hochi_article_paths(url: str) -> None:
+    with pytest.raises(UnsupportedNewsSourceError):
+        _resolver().resolve(url)
