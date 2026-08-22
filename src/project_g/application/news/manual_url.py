@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from ipaddress import ip_address
 from typing import Final
@@ -12,6 +13,12 @@ from urllib.parse import (
 from project_g.domain.news import NewsSource
 
 _MAX_URL_LENGTH: Final = 2048
+
+_HOCHI_ARTICLE_PATH_PATTERN: Final = re.compile(
+    r"^/articles/"
+    r"[0-9]{8}-OHT1T[0-9]+"
+    r"\.html$"
+)
 
 _TRACKING_PARAMETERS: Final = frozenset(
     {
@@ -106,7 +113,8 @@ class ManualNewsUrlResolver:
 
             source_path = source_url.path or "/"
 
-            if not _path_matches(
+            if not _source_path_matches(
+                source=source,
                 submitted_path=path,
                 source_path=source_path,
             ):
@@ -204,6 +212,24 @@ def _normalize_hostname(
         return normalized
 
     raise UnsafeManualNewsUrlError("IP address hosts are not allowed")
+
+
+def _source_path_matches(
+    *,
+    source: NewsSource,
+    submitted_path: str,
+    source_path: str,
+) -> bool:
+    if source.source_id == "hochi_giants_articles":
+        return _path_matches(
+            submitted_path=submitted_path,
+            source_path=source_path,
+        ) or _HOCHI_ARTICLE_PATH_PATTERN.fullmatch(submitted_path) is not None
+
+    return _path_matches(
+        submitted_path=submitted_path,
+        source_path=source_path,
+    )
 
 
 def _path_matches(
