@@ -221,10 +221,13 @@ def _source_path_matches(
     source_path: str,
 ) -> bool:
     if source.source_id == "hochi_giants_articles":
-        return _path_matches(
-            submitted_path=submitted_path,
-            source_path=source_path,
-        ) or _HOCHI_ARTICLE_PATH_PATTERN.fullmatch(submitted_path) is not None
+        return (
+            _path_matches(
+                submitted_path=submitted_path,
+                source_path=source_path,
+            )
+            or _HOCHI_ARTICLE_PATH_PATTERN.fullmatch(submitted_path) is not None
+        )
 
     return _path_matches(
         submitted_path=submitted_path,

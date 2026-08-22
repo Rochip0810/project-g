@@ -71,6 +71,7 @@ def test_paused_source_can_still_be_used_for_manual_intake() -> None:
     assert result.source.source_id == "giants_official_news"
     assert result.source.collectable is False
 
+
 def test_resolver_accepts_hochi_article_outside_source_base_path() -> None:
     url = "https://hochi.news/articles/20260821-OHT1T51204.html"
 
