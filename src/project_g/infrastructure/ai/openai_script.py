@@ -246,7 +246,7 @@ class OpenAINewsScriptGenerator:
         self,
         input_data: NewsScriptGeneratorInput,
     ) -> NewsScriptGeneratorResult:
-        background_evidence = {
+        background_evidence: dict[str, list[dict[str, str]]] = {
             "target": [],
             "comparison": [],
             "team_context": [],

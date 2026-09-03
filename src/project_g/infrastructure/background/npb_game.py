@@ -3,6 +3,7 @@ from datetime import date
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 
 from project_g.domain.news.competition import CompetitionLevel
 from project_g.domain.news.game_evidence import NPBGamePitchingEvidence
@@ -94,13 +95,15 @@ def _parse_source_url(
     raise NPBGameEvidenceExtractionError("Unsupported NPB game box-score URL")
 
 
-def _top_level_rows(table):
+def _top_level_rows(
+    table: Tag,
+) -> list[Tag]:
     return [row for row in table.find_all("tr") if row.find_parent("table") is table]
 
 
 def _find_pitching_tables(
     soup: BeautifulSoup,
-) -> list:
+) -> list[Tag]:
     pitching_tables = []
 
     for table in soup.find_all("table"):
@@ -126,7 +129,9 @@ def _find_pitching_tables(
     return pitching_tables
 
 
-def _parse_innings(cell) -> tuple[int, int]:
+def _parse_innings(
+    cell: Tag,
+) -> tuple[int, int]:
     innings_table = cell.find(
         "table",
         class_="table_inning",
