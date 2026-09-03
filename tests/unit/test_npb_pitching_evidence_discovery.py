@@ -1,11 +1,10 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
+from project_g.domain.news.evidence_role import EvidenceRole
 from project_g.infrastructure.background.npb_discovery import (
     NPBOfficialPitchingEvidenceDiscovery,
 )
-
-from project_g.domain.news.evidence_role import EvidenceRole
 from project_g.ports.npb_game import (
     NPBPitchingPlayerCandidate,
 )
