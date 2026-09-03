@@ -4,8 +4,10 @@ import pytest
 
 from project_g.domain.news.competition import CompetitionLevel
 from project_g.infrastructure.background.npb_game import (
-    NPBGameEvidenceExtractionError,
     NPBGameEvidenceExtractor,
+)
+from project_g.ports.npb_game import (
+    NPBGameEvidenceExtractionError,
 )
 
 
@@ -153,3 +155,37 @@ def test_rejects_missing_pitcher() -> None:
             source_url=("https://npb.jp/scores_farm/2026/0801/g-e-09/box.html"),
             player_name="菅野",
         )
+
+
+def test_extracts_game_end_time_as_aware_jst_datetime() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    html = _html().replace(
+        "<body>",
+        """
+        <body>
+          <div>
+            【試合終了】
+            ◇開始 14:01
+            ◇終了 17:18
+            ◇試合時間 3時間17分
+          </div>
+        """,
+        1,
+    )
+
+    result = NPBGameEvidenceExtractor().extract_pitcher(
+        html=html,
+        source_url=("https://npb.jp/scores/2026/0822/g-c-16/box.html"),
+        player_name="則本",
+    )
+
+    assert result.game_ended_at == datetime(
+        2026,
+        8,
+        22,
+        17,
+        18,
+        tzinfo=ZoneInfo("Asia/Tokyo"),
+    )

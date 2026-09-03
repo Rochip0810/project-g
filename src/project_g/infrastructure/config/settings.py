@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr = SecretStr("")
     openai_relevance_model: str = "gpt-5.6-luna"
     openai_priority_model: str = "gpt-5.6-luna"
+    openai_context_model: str = "gpt-5.6-luna"
+    openai_script_model: str = "gpt-5.6-luna"
+    openai_npb_player_model: str = "gpt-5.6-luna"
     openai_request_timeout_seconds: float = Field(
         default=30.0,
         gt=0,
