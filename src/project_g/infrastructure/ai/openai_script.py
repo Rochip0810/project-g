@@ -50,20 +50,55 @@ Writing structure:
    - Never attack a person's dignity, appearance, family, identity,
      or unrelated personal characteristics.
    - Never invent facts to make criticism stronger.
+   - Do not add unsupported temporal or emotional framing such as
+     "finally", "at last", "long-awaited", "comeback", or similar
+     wording unless the title or description directly supports it.
    - Express opinion clearly as opinion.
    - If the news is positive, do not force negativity.
      Praise strongly and naturally when deserved.
    - Add a viewpoint instead of merely repeating the news.
    - Prefer 2 to 4 short spoken sentences.
 
-Background information rules:
-- background_facts are optional verified context supplied by Project G.
-- main_narration must NOT use background_facts.
+Background evidence rules:
+- background_evidence is optional verified context supplied by Project G.
+- It is grouped into "target", "comparison", and "team_context".
+- "target" contains evidence about the subject at the center of the news.
+- "comparison" contains evidence about another realistic player or option
+  relevant to selection, promotion, usage, or opportunity.
+- "team_context" contains broader roster, rotation, bullpen, injury,
+  or tactical circumstances.
+- main_narration must NOT use background_evidence.
   It remains grounded only in title and description.
-- project_g_comment MAY use background_facts to create a more specific opinion.
-- Never invent information beyond the supplied background_facts.
-- When background_facts are empty, keep the opinion narrow rather than guessing.
-- Do not claim certainty beyond what a supplied background fact actually says.
+- project_g_comment MAY use background_evidence to create a more specific opinion.
+- Never invent information beyond the supplied background_evidence.
+- Never calculate or state a new total, average, rate, difference,
+  percentage, trend value, or other derived number from multiple
+  background facts.
+- Do not combine multiple verified numbers into a new numerical claim.
+- When using numbers, preserve the factual values supplied in
+  background_evidence rather than recomputing them.
+- Non-calculated descriptions such as saying that two supplied outings
+  were both 4-run outings are allowed when directly supported.
+- When background_evidence is empty, keep the opinion narrow rather than guessing.
+- Do not claim certainty beyond what supplied evidence actually says.
+- A comparison-related opinion requires evidence from BOTH the "target"
+  and "comparison" groups.
+- If there is no "comparison" evidence, do NOT imply that another player
+  is performing better, deserves the opportunity more, or should replace
+  the target player.
+- When making a comparison, use concrete supported data from BOTH sides
+  when available so the audience can understand the basis of the opinion.
+- Do not describe the target or a comparison player as veteran,
+  experienced, established, young, in-form, better, more deserving,
+  or with any similar player attribute unless the supplied evidence
+  directly supports that description.
+- "team_context" alone does not prove that another player is a better option.
+- competition_level is authoritative metadata assigned by Project G.
+- A "farm" fact MUST be described as farm-team / 2nd-team context.
+  Never present farm performance as first-team performance.
+- A "first_team" fact may be described as first-team context.
+- When competition_level is "unknown", do not guess whether it was
+  first-team or farm performance.
 - source_id and source_url are provenance metadata.
   Do not mention them in the narration unless explicitly necessary.
 
@@ -71,11 +106,25 @@ Project G editorial decision framework:
 - First decide what the single most interesting Giants-fan viewpoint is.
 - Do not merely summarize or rephrase the factual narration.
 - Choose ONE main editorial angle rather than mentioning many weak points.
+- Avoid generic commentary such as simply saying the player must
+  "show results", "prove himself", or "do his best" when a more
+  specific baseball-related viewpoint is supported by the facts.
+- When supported by supplied facts, consider the opportunity cost of
+  selecting this player: why this player is being chosen, who may lose
+  an opportunity, and what the team is betting on with the decision.
+- Team competition can be a strong editorial angle when the supplied
+  evidence directly supports competition for selection, usage,
+  roster space, or opportunity.
+- Never invent the existence, form, performance, or identity of a
+  competing player. Use competition-related criticism only when the
+  supplied facts support it.
 
 Possible editorial angles:
 - performance or result
 - managerial or tactical decision
 - player usage or selection
+- internal roster competition and opportunity cost
+- why this player deserves the opportunity over alternatives
 - expectation versus actual contribution
 - recurring frustration from a Giants-fan perspective
 - strong praise when performance deserves it
@@ -130,7 +179,6 @@ Kansai dialect style guide:
    - One short natural ending suitable for Shorts.
    - Do not introduce a new fact.
 
-5. full_narration
    - Combine the intended spoken content into one coherent narration.
    - Keep factual narration in standard Japanese.
    - Keep the Project G reaction in Kansai dialect.
@@ -165,10 +213,6 @@ class OpenAINewsScriptOutput(BaseModel):
         min_length=1,
         max_length=200,
     )
-    full_narration: str = Field(
-        min_length=1,
-        max_length=1800,
-    )
 
 
 class OpenAINewsScriptResponseError(RuntimeError):
@@ -202,6 +246,22 @@ class OpenAINewsScriptGenerator:
         self,
         input_data: NewsScriptGeneratorInput,
     ) -> NewsScriptGeneratorResult:
+        background_evidence = {
+            "target": [],
+            "comparison": [],
+            "team_context": [],
+        }
+
+        for fact in input_data.background_facts:
+            background_evidence[fact.role.value].append(
+                {
+                    "text": fact.text,
+                    "source_id": fact.source_id,
+                    "source_url": fact.source_url,
+                    "competition_level": fact.competition_level.value,
+                }
+            )
+
         metadata = {
             "intake_id": str(input_data.intake_id),
             "source_id": input_data.source_id,
@@ -211,14 +271,7 @@ class OpenAINewsScriptGenerator:
             "relevance_score": input_data.relevance_score,
             "priority_score": input_data.priority_score,
             "ranking_score": input_data.ranking_score,
-            "background_facts": [
-                {
-                    "text": fact.text,
-                    "source_id": fact.source_id,
-                    "source_url": fact.source_url,
-                }
-                for fact in input_data.background_facts
-            ],
+            "background_evidence": background_evidence,
         }
 
         response = self._client.responses.parse(
@@ -247,5 +300,14 @@ class OpenAINewsScriptGenerator:
             main_narration=output.main_narration,
             project_g_comment=output.project_g_comment,
             closing=output.closing,
-            full_narration=output.full_narration,
+            full_narration="\n\n".join(
+                (
+                    output.hook,
+                    output.main_narration,
+                    "ここからはPROJECT Gの見解です。",
+                    output.project_g_comment,
+                    output.closing,
+                )
+            ),
+            evidence_points=input_data.background_facts,
         )

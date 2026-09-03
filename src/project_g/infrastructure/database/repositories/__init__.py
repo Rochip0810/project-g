@@ -16,6 +16,9 @@ from project_g.infrastructure.database.repositories.news_relevance_analyses impo
 from project_g.infrastructure.database.repositories.news_sources import (
     SqlAlchemyNewsSourceRepository,
 )
+from project_g.infrastructure.database.repositories.recent_news_context import (
+    SqlAlchemyRecentNewsContextRepository,
+)
 
 __all__ = [
     "SqlAlchemyManualNewsIntakeRepository",
@@ -24,4 +27,5 @@ __all__ = [
     "SqlAlchemyNewsProcessingJobRepository",
     "SqlAlchemyNewsRelevanceAnalysisRepository",
     "SqlAlchemyNewsSourceRepository",
+    "SqlAlchemyRecentNewsContextRepository",
 ]

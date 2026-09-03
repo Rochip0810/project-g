@@ -27,6 +27,9 @@ from project_g.ports.repositories.news_sources import (
     NewsSourceRepository,
     StoredNewsSourceNotFoundError,
 )
+from project_g.ports.repositories.recent_news_context import (
+    RecentNewsContextRepository,
+)
 
 __all__ = [
     "ManualNewsIntakeAlreadyExistsError",
@@ -45,5 +48,6 @@ __all__ = [
     "NewsRelevanceAnalysisRepository",
     "NewsSourceAlreadyExistsError",
     "NewsSourceRepository",
+    "RecentNewsContextRepository",
     "StoredNewsSourceNotFoundError",
 ]

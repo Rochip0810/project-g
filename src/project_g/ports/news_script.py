@@ -2,12 +2,17 @@ from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
+from project_g.domain.news.competition import CompetitionLevel
+from project_g.domain.news.evidence_role import EvidenceRole
+
 
 @dataclass(frozen=True, slots=True)
 class NewsScriptBackgroundFact:
     text: str
     source_id: str
     source_url: str
+    competition_level: CompetitionLevel = CompetitionLevel.UNKNOWN
+    role: EvidenceRole = EvidenceRole.TARGET
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +35,7 @@ class NewsScriptGeneratorResult:
     project_g_comment: str
     closing: str
     full_narration: str
+    evidence_points: tuple[NewsScriptBackgroundFact, ...] = ()
 
 
 class NewsScriptGenerator(Protocol):
