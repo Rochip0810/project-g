@@ -1,17 +1,16 @@
 import re
-from datetime import date
+from datetime import date, datetime, time
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
 from project_g.domain.news.competition import CompetitionLevel
 from project_g.domain.news.game_evidence import NPBGamePitchingEvidence
-
-
-class NPBGameEvidenceExtractionError(ValueError):
-    pass
-
+from project_g.ports.npb_game import (
+    NPBGameEvidenceExtractionError as NPBGameEvidenceExtractionError,
+)
 
 _FARM_PATH_PATTERN = re.compile(
     r"^/scores_farm/(?P<year>\d{4})/(?P<month>\d{2})(?P<day>\d{2})/"
@@ -93,6 +92,44 @@ def _parse_source_url(
         return game_date, competition_level
 
     raise NPBGameEvidenceExtractionError("Unsupported NPB game box-score URL")
+
+
+_JST = ZoneInfo("Asia/Tokyo")
+
+_GAME_END_TIME_PATTERN = re.compile(r"終了\s*(?P<hour>\d{1,2}):(?P<minute>\d{2})")
+
+
+def _parse_game_ended_at(
+    soup: BeautifulSoup,
+    *,
+    game_date: date,
+) -> datetime | None:
+    page_text = _normalize_text(soup.get_text(" ", strip=True))
+
+    if "試合終了" not in page_text:
+        return None
+
+    match = _GAME_END_TIME_PATTERN.search(page_text)
+
+    if match is None:
+        raise NPBGameEvidenceExtractionError(
+            "NPB game is marked finished but end time was not found"
+        )
+
+    hour = int(match.group("hour"))
+    minute = int(match.group("minute"))
+
+    if hour > 23 or minute > 59:
+        raise NPBGameEvidenceExtractionError("NPB game end time is invalid")
+
+    return datetime.combine(
+        game_date,
+        time(
+            hour=hour,
+            minute=minute,
+        ),
+        tzinfo=_JST,
+    )
 
 
 def _top_level_rows(
@@ -193,6 +230,11 @@ class NPBGameEvidenceExtractor:
             "html.parser",
         )
 
+        game_ended_at = _parse_game_ended_at(
+            soup,
+            game_date=game_date,
+        )
+
         tables = _find_pitching_tables(soup)
 
         matching_rows = []
@@ -240,6 +282,7 @@ class NPBGameEvidenceExtractor:
 
         return NPBGamePitchingEvidence(
             source_url=source_url,
+            game_ended_at=game_ended_at,
             game_date=game_date,
             competition_level=competition_level,
             player_name=normalized_player_name,

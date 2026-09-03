@@ -11,6 +11,7 @@ from project_g.application.news.analyze_relevance import AnalyzeNewsRelevance
 from project_g.application.news.create_priority_analysis import CreateNewsPriorityAnalysis
 from project_g.application.news.enqueue_priority_analysis import EnqueueNewsPriorityAnalysis
 from project_g.application.news.enqueue_relevance_analysis import EnqueueNewsRelevanceAnalysis
+from project_g.application.news.generate_news_script import GenerateNewsScriptInput
 from project_g.domain.news.article_metadata import NewsMetadataStatus
 from project_g.domain.news.priority_analysis import NewsPriorityStatus
 from project_g.domain.news.relevance_analysis import (
@@ -24,6 +25,9 @@ from project_g.infrastructure.collectors import (
     GiantsOfficialNewsParser,
     HochiGiantsArticlesCollector,
     HochiGiantsArticlesParser,
+)
+from project_g.infrastructure.composition.news_script import (
+    build_generate_news_script,
 )
 from project_g.infrastructure.config import Settings
 from project_g.infrastructure.database import (
@@ -643,4 +647,128 @@ def discover_hochi_giants_news(
     finally:
         connection.close()
         connection_pool.close()
+        engine.dispose()
+
+
+def process_news_script(
+    intake_id: str,
+    ranking_score: int,
+) -> dict[str, object]:
+    """Generate one grounded Project G news script."""
+    try:
+        parsed_intake_id = UUID(intake_id)
+    except ValueError as error:
+        raise ValueError(f"Invalid news intake UUID: {intake_id}") from error
+
+    if not 0 <= ranking_score <= 100:
+        raise ValueError("ranking_score must be between 0 and 100")
+
+    settings = Settings()
+    engine = create_database_engine(settings)
+    factory = sessionmaker(
+        bind=engine,
+        expire_on_commit=False,
+    )
+
+    try:
+        with factory() as session:
+            intake_repository = SqlAlchemyManualNewsIntakeRepository(session)
+            metadata_repository = SqlAlchemyNewsArticleMetadataRepository(session)
+            relevance_repository = SqlAlchemyNewsRelevanceAnalysisRepository(session)
+            priority_repository = SqlAlchemyNewsPriorityAnalysisRepository(session)
+
+            intake = intake_repository.get_by_intake_id(parsed_intake_id)
+            if intake is None:
+                raise RuntimeError(f"News intake was not found: {parsed_intake_id}")
+
+            metadata = metadata_repository.get_by_intake_id(parsed_intake_id)
+            if metadata is None:
+                raise RuntimeError(f"News metadata was not found: {parsed_intake_id}")
+
+            if metadata.status not in {
+                NewsMetadataStatus.EXTRACTED,
+                NewsMetadataStatus.MANUAL,
+            }:
+                raise RuntimeError("News metadata is not ready for script generation")
+
+            title = metadata.title
+            published_at = metadata.published_at
+
+            if title is None:
+                raise RuntimeError("News metadata has no title")
+
+            if published_at is None:
+                raise RuntimeError("News metadata has no published_at")
+
+            relevance = relevance_repository.get_by_intake_id(parsed_intake_id)
+            if relevance is None:
+                raise RuntimeError(f"Relevance analysis was not found: {parsed_intake_id}")
+
+            if relevance.status is not NewsRelevanceStatus.ANALYZED:
+                raise RuntimeError("Relevance analysis is not ready")
+
+            if relevance.decision not in {
+                NewsRelevanceDecision.ACCEPTED,
+                NewsRelevanceDecision.REVIEW,
+            }:
+                raise RuntimeError("News is not eligible for script generation")
+
+            relevance_score = relevance.relevance_score
+            if relevance_score is None:
+                raise RuntimeError("Relevance analysis has no score")
+
+            priority = priority_repository.get_by_intake_id(parsed_intake_id)
+            if priority is None:
+                raise RuntimeError(f"Priority analysis was not found: {parsed_intake_id}")
+
+            if priority.status is not NewsPriorityStatus.ANALYZED:
+                raise RuntimeError("Priority analysis is not ready")
+
+            priority_score = priority.priority_score
+            if priority_score is None:
+                raise RuntimeError("Priority analysis has no score")
+
+            service = build_generate_news_script(
+                session=session,
+                settings=settings,
+            )
+
+            result = service.execute(
+                GenerateNewsScriptInput(
+                    intake_id=parsed_intake_id,
+                    source_id=intake.source_id,
+                    title=title,
+                    description=metadata.description,
+                    canonical_url=(intake.canonical_url),
+                    published_at=published_at,
+                    relevance_score=(relevance_score),
+                    priority_score=priority_score,
+                    ranking_score=ranking_score,
+                )
+            )
+
+            evidence = [
+                {
+                    "text": fact.text,
+                    "source_id": fact.source_id,
+                    "source_url": fact.source_url,
+                    "competition_level": (fact.competition_level.value),
+                    "role": fact.role.value,
+                }
+                for fact in result.background_facts
+            ]
+
+            return {
+                "status": "processed",
+                "intake_id": str(parsed_intake_id),
+                "ranking_score": ranking_score,
+                "hook": result.script.hook,
+                "main_narration": (result.script.main_narration),
+                "project_g_comment": (result.script.project_g_comment),
+                "closing": result.script.closing,
+                "full_narration": (result.script.full_narration),
+                "evidence_count": len(evidence),
+                "evidence": evidence,
+            }
+    finally:
         engine.dispose()

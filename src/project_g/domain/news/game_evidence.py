@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from project_g.domain.news.competition import CompetitionLevel
 
@@ -24,6 +24,7 @@ class NPBGamePitchingEvidence:
     balks: int
     runs: int
     earned_runs: int
+    game_ended_at: datetime | None = None
 
     @property
     def innings_display(self) -> str:
