@@ -13,6 +13,9 @@ from project_g.infrastructure.database.repositories.news_processing_jobs import 
 from project_g.infrastructure.database.repositories.news_relevance_analyses import (
     SqlAlchemyNewsRelevanceAnalysisRepository,
 )
+from project_g.infrastructure.database.repositories.news_script_generations import (
+    SqlAlchemyNewsScriptGenerationRepository,
+)
 from project_g.infrastructure.database.repositories.news_sources import (
     SqlAlchemyNewsSourceRepository,
 )
@@ -26,6 +29,7 @@ __all__ = [
     "SqlAlchemyNewsPriorityAnalysisRepository",
     "SqlAlchemyNewsProcessingJobRepository",
     "SqlAlchemyNewsRelevanceAnalysisRepository",
+    "SqlAlchemyNewsScriptGenerationRepository",
     "SqlAlchemyNewsSourceRepository",
     "SqlAlchemyRecentNewsContextRepository",
 ]

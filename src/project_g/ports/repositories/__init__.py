@@ -22,6 +22,11 @@ from project_g.ports.repositories.news_relevance_analyses import (
     NewsRelevanceAnalysisNotFoundError,
     NewsRelevanceAnalysisRepository,
 )
+from project_g.ports.repositories.news_script_generations import (
+    NewsScriptGenerationAlreadyExistsError,
+    NewsScriptGenerationNotFoundError,
+    NewsScriptGenerationRepository,
+)
 from project_g.ports.repositories.news_sources import (
     NewsSourceAlreadyExistsError,
     NewsSourceRepository,
@@ -46,6 +51,9 @@ __all__ = [
     "NewsRelevanceAnalysisAlreadyExistsError",
     "NewsRelevanceAnalysisNotFoundError",
     "NewsRelevanceAnalysisRepository",
+    "NewsScriptGenerationAlreadyExistsError",
+    "NewsScriptGenerationNotFoundError",
+    "NewsScriptGenerationRepository",
     "NewsSourceAlreadyExistsError",
     "NewsSourceRepository",
     "RecentNewsContextRepository",

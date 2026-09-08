@@ -55,7 +55,7 @@ def main() -> None:
 
     try:
         worker = create_worker(settings, connection)
-        worker.work()
+        worker.work(with_scheduler=True)
     finally:
         logger.info(
             "worker_stopped",
