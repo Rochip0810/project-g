@@ -10,6 +10,7 @@ from project_g.infrastructure.database.models import (
     ManualNewsIntakeRecord,
     NewsArticleMetadataRecord,
 )
+from project_g.infrastructure.database.session import SessionFactory
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -99,3 +100,32 @@ class SqlAlchemyRecentNewsContextRepository:
             )
 
         return items
+
+
+class SessionFactoryRecentNewsContextRepository:
+    """Read recent context using a short-lived database session."""
+
+    def __init__(
+        self,
+        *,
+        session_factory: SessionFactory,
+    ) -> None:
+        self._session_factory = session_factory
+
+    def list_recent_context(
+        self,
+        *,
+        exclude_intake_id: UUID,
+        published_since: datetime,
+        published_until: datetime,
+        limit: int = 50,
+    ) -> list[RecentNewsContextItem]:
+        with self._session_factory() as session:
+            repository = SqlAlchemyRecentNewsContextRepository(session)
+
+            return repository.list_recent_context(
+                exclude_intake_id=exclude_intake_id,
+                published_since=published_since,
+                published_until=published_until,
+                limit=limit,
+            )

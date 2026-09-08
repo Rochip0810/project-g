@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from redis import Redis
+from rq import Retry
 from rq.exceptions import DuplicateJobError
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
@@ -12,11 +13,17 @@ from project_g.application.news.create_priority_analysis import CreateNewsPriori
 from project_g.application.news.enqueue_priority_analysis import EnqueueNewsPriorityAnalysis
 from project_g.application.news.enqueue_relevance_analysis import EnqueueNewsRelevanceAnalysis
 from project_g.application.news.generate_news_script import GenerateNewsScriptInput
+from project_g.application.news.manage_news_script_generation import (
+    ManageNewsScriptGeneration,
+)
 from project_g.domain.news.article_metadata import NewsMetadataStatus
 from project_g.domain.news.priority_analysis import NewsPriorityStatus
 from project_g.domain.news.relevance_analysis import (
     NewsRelevanceDecision,
     NewsRelevanceStatus,
+)
+from project_g.domain.news.script_generation import (
+    NewsScriptGenerationStatus,
 )
 from project_g.infrastructure.ai.openai_priority import OpenAIPriorityAnalyzer
 from project_g.infrastructure.ai.openai_relevance import OpenAIRelevanceAnalyzer
@@ -43,6 +50,7 @@ from project_g.infrastructure.database.repositories import (
     SqlAlchemyNewsArticleMetadataRepository,
     SqlAlchemyNewsPriorityAnalysisRepository,
     SqlAlchemyNewsRelevanceAnalysisRepository,
+    SqlAlchemyNewsScriptGenerationRepository,
     SqlAlchemyNewsSourceRepository,
 )
 from project_g.infrastructure.http import HttpxHttpClient
@@ -653,8 +661,8 @@ def discover_hochi_giants_news(
 def process_news_script(
     intake_id: str,
     ranking_score: int,
-) -> dict[str, object]:
-    """Generate one grounded Project G news script."""
+) -> dict[str, object] | Retry:
+    """Generate and persist one grounded Project G news script."""
     try:
         parsed_intake_id = UUID(intake_id)
     except ValueError as error:
@@ -670,8 +678,17 @@ def process_news_script(
         expire_on_commit=False,
     )
 
+    generation_version = 1
+
     try:
-        with factory() as session:
+        claimed_generation = None
+        existing_generation = None
+        script_input: GenerateNewsScriptInput | None = None
+
+        # Transaction 1:
+        # Validate readiness, persist the durable generation record,
+        # and atomically claim it before any network work starts.
+        with factory.begin() as session:
             intake_repository = SqlAlchemyManualNewsIntakeRepository(session)
             metadata_repository = SqlAlchemyNewsArticleMetadataRepository(session)
             relevance_repository = SqlAlchemyNewsRelevanceAnalysisRepository(session)
@@ -728,47 +745,157 @@ def process_news_script(
             if priority_score is None:
                 raise RuntimeError("Priority analysis has no score")
 
-            service = build_generate_news_script(
-                session=session,
-                settings=settings,
+            generation_repository = SqlAlchemyNewsScriptGenerationRepository(session)
+            manager = ManageNewsScriptGeneration(
+                repository=generation_repository,
             )
 
-            result = service.execute(
-                GenerateNewsScriptInput(
+            prepared_generation = manager.prepare(
+                intake_id=parsed_intake_id,
+                generation_version=generation_version,
+                ranking_score=ranking_score,
+            )
+
+            if prepared_generation.status is NewsScriptGenerationStatus.GENERATED:
+                existing_generation = prepared_generation
+            else:
+                claimed_generation = manager.claim(
                     intake_id=parsed_intake_id,
-                    source_id=intake.source_id,
-                    title=title,
-                    description=metadata.description,
-                    canonical_url=(intake.canonical_url),
-                    published_at=published_at,
-                    relevance_score=(relevance_score),
-                    priority_score=priority_score,
-                    ranking_score=ranking_score,
+                    generation_version=generation_version,
+                    stale_after_seconds=(settings.rq_job_timeout_seconds),
                 )
-            )
 
-            evidence = [
-                {
-                    "text": fact.text,
-                    "source_id": fact.source_id,
-                    "source_url": fact.source_url,
-                    "competition_level": (fact.competition_level.value),
-                    "role": fact.role.value,
+                if claimed_generation is None:
+                    existing_generation = generation_repository.get_by_intake_version(
+                        intake_id=parsed_intake_id,
+                        generation_version=(generation_version),
+                    )
+
+                    if existing_generation is None:
+                        raise RuntimeError("Script generation state disappeared while claiming")
+                else:
+                    script_input = GenerateNewsScriptInput(
+                        intake_id=parsed_intake_id,
+                        source_id=intake.source_id,
+                        title=title,
+                        description=metadata.description,
+                        canonical_url=intake.canonical_url,
+                        published_at=published_at,
+                        relevance_score=relevance_score,
+                        priority_score=priority_score,
+                        ranking_score=(claimed_generation.ranking_score),
+                    )
+
+        # The claim transaction has committed here.
+        # No generation/OpenAI/NPB network call occurred
+        # while that database transaction was open.
+        if claimed_generation is None:
+            assert existing_generation is not None
+
+            if existing_generation.status is NewsScriptGenerationStatus.GENERATED:
+                evidence_snapshot = existing_generation.evidence_snapshot or ()
+
+                evidence = [
+                    {
+                        "text": fact.text,
+                        "source_id": fact.source_id,
+                        "source_url": fact.source_url,
+                        "competition_level": (fact.competition_level.value),
+                        "role": fact.role.value,
+                    }
+                    for fact in evidence_snapshot
+                ]
+
+                return {
+                    "status": "already_generated",
+                    "intake_id": str(parsed_intake_id),
+                    "ranking_score": (existing_generation.ranking_score),
+                    "hook": existing_generation.hook,
+                    "main_narration": (existing_generation.main_narration),
+                    "project_g_comment": (existing_generation.project_g_comment),
+                    "closing": (existing_generation.closing),
+                    "full_narration": (existing_generation.full_narration),
+                    "evidence_count": len(evidence),
+                    "evidence": evidence,
                 }
-                for fact in result.background_facts
-            ]
+
+            if existing_generation.status is NewsScriptGenerationStatus.GENERATING:
+                return Retry(
+                    max=1,
+                    interval=settings.rq_job_timeout_seconds,
+                )
 
             return {
-                "status": "processed",
+                "status": (existing_generation.status.value),
                 "intake_id": str(parsed_intake_id),
-                "ranking_score": ranking_score,
-                "hook": result.script.hook,
-                "main_narration": (result.script.main_narration),
-                "project_g_comment": (result.script.project_g_comment),
-                "closing": result.script.closing,
-                "full_narration": (result.script.full_narration),
-                "evidence_count": len(evidence),
-                "evidence": evidence,
+                "ranking_score": (existing_generation.ranking_score),
             }
+
+        # Network-capable generation happens only after
+        # the durable GENERATING claim has committed.
+        assert script_input is not None
+
+        service = build_generate_news_script(
+            session_factory=factory,
+            settings=settings,
+        )
+
+        try:
+            result = service.execute(script_input)
+        except Exception as error:
+            failure_reason = f"{type(error).__name__}: news script generation failed"
+
+            with factory.begin() as session:
+                generation_repository = SqlAlchemyNewsScriptGenerationRepository(session)
+                manager = ManageNewsScriptGeneration(
+                    repository=generation_repository,
+                )
+
+                manager.mark_failed(
+                    generation_id=(claimed_generation.generation_id),
+                    reason=failure_reason,
+                )
+
+            raise
+
+        # Transaction 2:
+        # Persist the exact generated narration and
+        # evidence snapshot after network work is complete.
+        with factory.begin() as session:
+            generation_repository = SqlAlchemyNewsScriptGenerationRepository(session)
+            manager = ManageNewsScriptGeneration(
+                repository=generation_repository,
+            )
+
+            generated = manager.record_generated(
+                generation_id=(claimed_generation.generation_id),
+                result=result,
+            )
+
+        evidence_snapshot = generated.evidence_snapshot or ()
+
+        evidence = [
+            {
+                "text": fact.text,
+                "source_id": fact.source_id,
+                "source_url": fact.source_url,
+                "competition_level": (fact.competition_level.value),
+                "role": fact.role.value,
+            }
+            for fact in evidence_snapshot
+        ]
+
+        return {
+            "status": "processed",
+            "intake_id": str(parsed_intake_id),
+            "ranking_score": generated.ranking_score,
+            "hook": generated.hook,
+            "main_narration": (generated.main_narration),
+            "project_g_comment": (generated.project_g_comment),
+            "closing": generated.closing,
+            "full_narration": (generated.full_narration),
+            "evidence_count": len(evidence),
+            "evidence": evidence,
+        }
     finally:
         engine.dispose()

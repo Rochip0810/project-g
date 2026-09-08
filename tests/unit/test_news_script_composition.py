@@ -15,11 +15,13 @@ def test_builds_real_news_script_service_without_network_calls() -> None:
         openai_api_key=SecretStr("test-key"),
     )
 
-    with Session() as session:
-        service = build_generate_news_script(
-            session=session,
-            settings=settings,
-        )
+    def session_factory() -> Session:
+        return Session()
+
+    service = build_generate_news_script(
+        session_factory=session_factory,
+        settings=settings,
+    )
 
     assert isinstance(
         service,

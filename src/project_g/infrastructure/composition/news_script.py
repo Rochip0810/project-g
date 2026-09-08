@@ -1,5 +1,3 @@
-from sqlalchemy.orm import Session
-
 from project_g.application.news.build_script_background_facts import (
     BuildNewsScriptBackgroundFacts,
 )
@@ -30,14 +28,15 @@ from project_g.infrastructure.background.npb_schedule import (
 )
 from project_g.infrastructure.config import Settings
 from project_g.infrastructure.database.repositories.recent_news_context import (
-    SqlAlchemyRecentNewsContextRepository,
+    SessionFactoryRecentNewsContextRepository,
 )
+from project_g.infrastructure.database.session import SessionFactory
 from project_g.infrastructure.http import HttpxHttpClient
 
 
 def build_generate_news_script(
     *,
-    session: Session,
+    session_factory: SessionFactory,
     settings: Settings,
 ) -> GenerateNewsScript:
     api_key = settings.openai_api_key.get_secret_value()
@@ -54,7 +53,9 @@ def build_generate_news_script(
     )
 
     background_builder = BuildNewsScriptBackgroundFacts(
-        repository=(SqlAlchemyRecentNewsContextRepository(session)),
+        repository=SessionFactoryRecentNewsContextRepository(
+            session_factory=session_factory,
+        ),
         selector=context_selector,
     )
 

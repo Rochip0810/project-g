@@ -13,6 +13,9 @@ from project_g.infrastructure.database.models.news_processing_job import (
 from project_g.infrastructure.database.models.news_relevance_analysis import (
     NewsRelevanceAnalysisRecord,
 )
+from project_g.infrastructure.database.models.news_script_generation import (
+    NewsScriptGenerationRecord,
+)
 from project_g.infrastructure.database.models.news_source import (
     NewsSourceRecord,
 )
@@ -23,5 +26,6 @@ __all__ = [
     "NewsPriorityAnalysisRecord",
     "NewsProcessingJobRecord",
     "NewsRelevanceAnalysisRecord",
+    "NewsScriptGenerationRecord",
     "NewsSourceRecord",
 ]
