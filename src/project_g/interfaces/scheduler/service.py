@@ -19,6 +19,9 @@ RELEVANCE_RECOVERY_INTERVAL_SECONDS = 300
 RELEVANCE_RECOVERY_LIMIT = 5
 PRIORITY_RECOVERY_INTERVAL_SECONDS = 300
 PRIORITY_RECOVERY_LIMIT = 5
+NEWS_SCRIPT_ENQUEUE_INTERVAL_SECONDS = 300
+NEWS_SCRIPT_ENQUEUE_LIMIT = 5
+NEWS_SCRIPT_MIN_RANKING_SCORE = 70
 
 
 class SchedulerRunStatus(StrEnum):
@@ -35,6 +38,7 @@ class SchedulerIterationResult:
     hochi_discovery_job_id: str | None = None
     relevance_recovery_job_id: str | None = None
     priority_recovery_job_id: str | None = None
+    script_enqueue_job_id: str | None = None
 
 
 class SchedulerService:
@@ -110,6 +114,16 @@ class SchedulerService:
         )
         return f"news-priority-recovery-{bucket}"
 
+    def _create_script_enqueue_job_id(
+        self,
+        current_time: datetime,
+    ) -> str:
+        bucket = self._time_bucket(
+            current_time,
+            interval_seconds=NEWS_SCRIPT_ENQUEUE_INTERVAL_SECONDS,
+        )
+        return f"news-script-enqueue-{bucket}"
+
     def run_once(self) -> SchedulerIterationResult:
         if not self._scheduler_lock.acquire():
             return SchedulerIterationResult(
@@ -129,6 +143,7 @@ class SchedulerService:
             hochi_discovery_job_id = self._create_hochi_discovery_job_id(current_time)
             relevance_recovery_job_id = self._create_relevance_recovery_job_id(current_time)
             priority_recovery_job_id = self._create_priority_recovery_job_id(current_time)
+            script_enqueue_job_id = self._create_script_enqueue_job_id(current_time)
 
             enqueued_any = False
 
@@ -200,6 +215,22 @@ class SchedulerService:
             else:
                 enqueued_any = True
 
+            try:
+                self._queue_provider.enqueue(
+                    QueueName.DEFAULT,
+                    ("project_g.interfaces.workers.jobs.enqueue_ranked_news_scripts"),
+                    kwargs={
+                        "limit": NEWS_SCRIPT_ENQUEUE_LIMIT,
+                        "min_ranking_score": NEWS_SCRIPT_MIN_RANKING_SCORE,
+                    },
+                    job_id=script_enqueue_job_id,
+                    description="Enqueue ranked news scripts",
+                )
+            except DuplicateJobError:
+                pass
+            else:
+                enqueued_any = True
+
             return SchedulerIterationResult(
                 status=(
                     SchedulerRunStatus.ENQUEUED
@@ -211,6 +242,7 @@ class SchedulerService:
                 hochi_discovery_job_id=(hochi_discovery_job_id),
                 relevance_recovery_job_id=(relevance_recovery_job_id),
                 priority_recovery_job_id=(priority_recovery_job_id),
+                script_enqueue_job_id=script_enqueue_job_id,
             )
         finally:
             self._scheduler_lock.release()
@@ -231,6 +263,7 @@ class SchedulerService:
                 hochi_discovery_job_id=(result.hochi_discovery_job_id),
                 relevance_recovery_job_id=(result.relevance_recovery_job_id),
                 priority_recovery_job_id=(result.priority_recovery_job_id),
+                script_enqueue_job_id=(result.script_enqueue_job_id),
             )
 
             stop_event.wait(self._settings.scheduler_interval_seconds)
