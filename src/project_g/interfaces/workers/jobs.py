@@ -10,11 +10,18 @@ from sqlalchemy.orm import sessionmaker
 from project_g.application.news.analyze_priority import AnalyzeNewsPriority
 from project_g.application.news.analyze_relevance import AnalyzeNewsRelevance
 from project_g.application.news.create_priority_analysis import CreateNewsPriorityAnalysis
+from project_g.application.news.enqueue_news_script_generation import (
+    EnqueueNewsScriptGeneration,
+)
 from project_g.application.news.enqueue_priority_analysis import EnqueueNewsPriorityAnalysis
 from project_g.application.news.enqueue_relevance_analysis import EnqueueNewsRelevanceAnalysis
 from project_g.application.news.generate_news_script import GenerateNewsScriptInput
 from project_g.application.news.manage_news_script_generation import (
     ManageNewsScriptGeneration,
+)
+from project_g.application.news.rank_candidates import RankNewsCandidates
+from project_g.application.news.select_news_script_enqueue_candidates import (
+    SelectNewsScriptEnqueueCandidates,
 )
 from project_g.domain.news.article_metadata import NewsMetadataStatus
 from project_g.domain.news.priority_analysis import NewsPriorityStatus
@@ -52,6 +59,9 @@ from project_g.infrastructure.database.repositories import (
     SqlAlchemyNewsRelevanceAnalysisRepository,
     SqlAlchemyNewsScriptGenerationRepository,
     SqlAlchemyNewsSourceRepository,
+)
+from project_g.infrastructure.database.repositories.news_ranking_candidates import (
+    SqlAlchemyNewsRankingCandidateRepository,
 )
 from project_g.infrastructure.http import HttpxHttpClient
 from project_g.infrastructure.queue import (
@@ -655,6 +665,98 @@ def discover_hochi_giants_news(
     finally:
         connection.close()
         connection_pool.close()
+        engine.dispose()
+
+
+def enqueue_ranked_news_scripts(
+    limit: int = 5,
+    min_ranking_score: int = 70,
+) -> dict[str, str | int]:
+    """Rank eligible news and enqueue script-generation jobs."""
+    if not 1 <= limit <= 50:
+        raise ValueError("limit must be between 1 and 50")
+
+    if not 0 <= min_ranking_score <= 100:
+        raise ValueError("min_ranking_score must be between 0 and 100")
+
+    settings = Settings()
+    engine = create_database_engine(settings)
+    factory = sessionmaker(
+        bind=engine,
+        expire_on_commit=False,
+    )
+
+    generation_version = 1
+    enqueue_interval_seconds = 300
+
+    try:
+        # Read and select candidates inside a short-lived DB session.
+        # Redis/RQ work starts only after this context is closed.
+        with factory() as session:
+            ranking_repository = SqlAlchemyNewsRankingCandidateRepository(session)
+            generation_repository = SqlAlchemyNewsScriptGenerationRepository(session)
+
+            rank_service = RankNewsCandidates(
+                ranking_repository,
+            )
+            rankings = rank_service.execute_all(
+                now=datetime.now(UTC),
+            )
+
+            selector = SelectNewsScriptEnqueueCandidates(
+                repository=generation_repository,
+            )
+            candidates = selector.execute(
+                rankings=rankings,
+                generation_version=generation_version,
+                min_ranking_score=min_ranking_score,
+                limit=limit,
+            )
+
+        current_time = datetime.now(UTC)
+        time_bucket = int(current_time.timestamp()) // enqueue_interval_seconds
+
+        connection_pool = create_redis_connection_pool(
+            settings,
+            decode_responses=False,
+        )
+        connection = Redis.from_pool(connection_pool)
+
+        enqueued_count = 0
+        duplicate_count = 0
+
+        try:
+            queue_provider = RQQueueProvider(
+                settings,
+                connection,
+            )
+            enqueue_service = EnqueueNewsScriptGeneration(
+                queue_provider=queue_provider,
+            )
+
+            for candidate in candidates:
+                try:
+                    enqueue_service.execute(
+                        candidate,
+                        time_bucket=time_bucket,
+                    )
+                except DuplicateJobError:
+                    duplicate_count += 1
+                else:
+                    enqueued_count += 1
+        finally:
+            connection.close()
+            connection_pool.close()
+
+        return {
+            "status": "processed",
+            "ranked_count": len(rankings),
+            "selected_count": len(candidates),
+            "enqueued_count": enqueued_count,
+            "duplicate_count": duplicate_count,
+        }
+
+    finally:
         engine.dispose()
 
 

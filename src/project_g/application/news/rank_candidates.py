@@ -20,6 +20,17 @@ class RankNewsCandidates:
     ) -> None:
         self._repository = repository
 
+    def execute_all(
+        self,
+        *,
+        now: datetime,
+    ) -> list[RankedNewsCandidate]:
+        candidates = self._repository.list_eligible_candidates()
+        return rank_news_candidates(
+            candidates,
+            now=now,
+        )
+
     def execute(
         self,
         *,
