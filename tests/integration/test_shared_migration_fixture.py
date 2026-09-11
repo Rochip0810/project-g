@@ -16,7 +16,7 @@ def test_shared_migration_fixtures_are_isolated(
 
     command.upgrade(alembic_config, "head")
 
-    assert get_current_revision(database_engine) == ("0008_news_script_generations")
+    assert get_current_revision(database_engine) == ("0009_news_media_productions")
     assert is_database_at_head(
         database_engine,
         alembic_config,

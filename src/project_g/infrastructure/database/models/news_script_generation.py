@@ -19,6 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from project_g.domain.news.competition import CompetitionLevel
 from project_g.domain.news.evidence_role import EvidenceRole
 from project_g.domain.news.script_generation import (
+    InvalidNewsScriptGenerationError,
     NewsScriptEvidenceSnapshot,
     NewsScriptGeneration,
     NewsScriptGenerationStatus,
@@ -195,16 +196,21 @@ class NewsScriptGenerationRecord(Base):
         evidence = None
 
         if self.evidence_snapshot is not None:
-            evidence = tuple(
-                NewsScriptEvidenceSnapshot(
-                    text=item["text"],
-                    source_id=item["source_id"],
-                    source_url=item["source_url"],
-                    competition_level=CompetitionLevel(item["competition_level"]),
-                    role=EvidenceRole(item["role"]),
+            try:
+                evidence = tuple(
+                    NewsScriptEvidenceSnapshot(
+                        text=item["text"],
+                        source_id=item["source_id"],
+                        source_url=item["source_url"],
+                        competition_level=CompetitionLevel(item["competition_level"]),
+                        role=EvidenceRole(item["role"]),
+                    )
+                    for item in self.evidence_snapshot
                 )
-                for item in self.evidence_snapshot
-            )
+            except InvalidNewsScriptGenerationError:
+                raise
+            except (KeyError, TypeError, ValueError) as error:
+                raise InvalidNewsScriptGenerationError("evidence_snapshot is invalid") from error
 
         return NewsScriptGeneration(
             generation_id=self.generation_id,

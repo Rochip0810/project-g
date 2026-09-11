@@ -4,6 +4,12 @@ from project_g.infrastructure.database.repositories.manual_news_intakes import (
 from project_g.infrastructure.database.repositories.news_article_metadata import (
     SqlAlchemyNewsArticleMetadataRepository,
 )
+from project_g.infrastructure.database.repositories.news_media_intake_candidates import (
+    SqlAlchemyNewsMediaIntakeCandidateRepository,
+)
+from project_g.infrastructure.database.repositories.news_media_productions import (
+    SqlAlchemyNewsMediaProductionRepository,
+)
 from project_g.infrastructure.database.repositories.news_priority_analyses import (
     SqlAlchemyNewsPriorityAnalysisRepository,
 )
@@ -26,6 +32,8 @@ from project_g.infrastructure.database.repositories.recent_news_context import (
 __all__ = [
     "SqlAlchemyManualNewsIntakeRepository",
     "SqlAlchemyNewsArticleMetadataRepository",
+    "SqlAlchemyNewsMediaIntakeCandidateRepository",
+    "SqlAlchemyNewsMediaProductionRepository",
     "SqlAlchemyNewsPriorityAnalysisRepository",
     "SqlAlchemyNewsProcessingJobRepository",
     "SqlAlchemyNewsRelevanceAnalysisRepository",

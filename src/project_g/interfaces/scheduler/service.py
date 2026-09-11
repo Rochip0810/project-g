@@ -22,6 +22,9 @@ PRIORITY_RECOVERY_LIMIT = 5
 NEWS_SCRIPT_ENQUEUE_INTERVAL_SECONDS = 300
 NEWS_SCRIPT_ENQUEUE_LIMIT = 5
 NEWS_SCRIPT_MIN_RANKING_SCORE = 70
+NEWS_MEDIA_PRODUCTION_INTERVAL_SECONDS = 300
+NEWS_MEDIA_PRODUCTION_LIMIT = 5
+NEWS_MEDIA_VERSION = 1
 
 
 class SchedulerRunStatus(StrEnum):
@@ -39,6 +42,7 @@ class SchedulerIterationResult:
     relevance_recovery_job_id: str | None = None
     priority_recovery_job_id: str | None = None
     script_enqueue_job_id: str | None = None
+    media_production_job_id: str | None = None
 
 
 class SchedulerService:
@@ -124,6 +128,16 @@ class SchedulerService:
         )
         return f"news-script-enqueue-{bucket}"
 
+    def _create_media_production_job_id(
+        self,
+        current_time: datetime,
+    ) -> str:
+        bucket = self._time_bucket(
+            current_time,
+            interval_seconds=NEWS_MEDIA_PRODUCTION_INTERVAL_SECONDS,
+        )
+        return f"news-media-production-{bucket}"
+
     def run_once(self) -> SchedulerIterationResult:
         if not self._scheduler_lock.acquire():
             return SchedulerIterationResult(
@@ -144,6 +158,7 @@ class SchedulerService:
             relevance_recovery_job_id = self._create_relevance_recovery_job_id(current_time)
             priority_recovery_job_id = self._create_priority_recovery_job_id(current_time)
             script_enqueue_job_id = self._create_script_enqueue_job_id(current_time)
+            media_production_job_id = self._create_media_production_job_id(current_time)
 
             enqueued_any = False
 
@@ -231,6 +246,22 @@ class SchedulerService:
             else:
                 enqueued_any = True
 
+            try:
+                self._queue_provider.enqueue(
+                    QueueName.DEFAULT,
+                    ("project_g.interfaces.workers.jobs.create_news_media_production_intakes"),
+                    kwargs={
+                        "limit": NEWS_MEDIA_PRODUCTION_LIMIT,
+                        "media_version": NEWS_MEDIA_VERSION,
+                    },
+                    job_id=media_production_job_id,
+                    description="Create news media production intakes",
+                )
+            except DuplicateJobError:
+                pass
+            else:
+                enqueued_any = True
+
             return SchedulerIterationResult(
                 status=(
                     SchedulerRunStatus.ENQUEUED
@@ -243,6 +274,7 @@ class SchedulerService:
                 relevance_recovery_job_id=(relevance_recovery_job_id),
                 priority_recovery_job_id=(priority_recovery_job_id),
                 script_enqueue_job_id=script_enqueue_job_id,
+                media_production_job_id=media_production_job_id,
             )
         finally:
             self._scheduler_lock.release()
@@ -264,6 +296,7 @@ class SchedulerService:
                 relevance_recovery_job_id=(result.relevance_recovery_job_id),
                 priority_recovery_job_id=(result.priority_recovery_job_id),
                 script_enqueue_job_id=(result.script_enqueue_job_id),
+                media_production_job_id=(result.media_production_job_id),
             )
 
             stop_event.wait(self._settings.scheduler_interval_seconds)
