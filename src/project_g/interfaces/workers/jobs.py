@@ -9,6 +9,9 @@ from sqlalchemy.orm import sessionmaker
 
 from project_g.application.news.analyze_priority import AnalyzeNewsPriority
 from project_g.application.news.analyze_relevance import AnalyzeNewsRelevance
+from project_g.application.news.create_media_production_intakes import (
+    CreateMediaProductionIntakes,
+)
 from project_g.application.news.create_priority_analysis import CreateNewsPriorityAnalysis
 from project_g.application.news.enqueue_news_script_generation import (
     EnqueueNewsScriptGeneration,
@@ -55,6 +58,8 @@ from project_g.infrastructure.database.models import (
 from project_g.infrastructure.database.repositories import (
     SqlAlchemyManualNewsIntakeRepository,
     SqlAlchemyNewsArticleMetadataRepository,
+    SqlAlchemyNewsMediaIntakeCandidateRepository,
+    SqlAlchemyNewsMediaProductionRepository,
     SqlAlchemyNewsPriorityAnalysisRepository,
     SqlAlchemyNewsRelevanceAnalysisRepository,
     SqlAlchemyNewsScriptGenerationRepository,
@@ -756,6 +761,50 @@ def enqueue_ranked_news_scripts(
             "duplicate_count": duplicate_count,
         }
 
+    finally:
+        engine.dispose()
+
+
+def create_news_media_production_intakes(
+    limit: int = 5,
+    media_version: int = 1,
+) -> dict[str, str | int]:
+    """Persist durable media-production intake for generated scripts."""
+    if not 1 <= limit <= 50:
+        raise ValueError("limit must be between 1 and 50")
+
+    if media_version < 1:
+        raise ValueError("media_version must be at least 1")
+
+    settings = Settings()
+    engine = create_database_engine(settings)
+    factory = sessionmaker(
+        bind=engine,
+        expire_on_commit=False,
+    )
+
+    try:
+        with factory.begin() as session:
+            candidate_repository = SqlAlchemyNewsMediaIntakeCandidateRepository(session)
+            media_repository = SqlAlchemyNewsMediaProductionRepository(session)
+
+            service = CreateMediaProductionIntakes(
+                candidate_repository=candidate_repository,
+                media_repository=media_repository,
+            )
+
+            result = service.execute(
+                media_version=media_version,
+                limit=limit,
+                created_at=datetime.now(UTC),
+            )
+
+        return {
+            "status": "processed",
+            "candidate_count": result.candidate_count,
+            "created_count": result.created_count,
+            "duplicate_count": result.duplicate_count,
+        }
     finally:
         engine.dispose()
 
