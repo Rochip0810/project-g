@@ -35,6 +35,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev \
     && chown -R projectg:projectg /app
 
+RUN mkdir -p /app/media \
+    && chown projectg:projectg /app/media
+
 USER projectg
 
 EXPOSE 8000

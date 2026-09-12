@@ -25,6 +25,9 @@ NEWS_SCRIPT_MIN_RANKING_SCORE = 70
 NEWS_MEDIA_PRODUCTION_INTERVAL_SECONDS = 300
 NEWS_MEDIA_PRODUCTION_LIMIT = 5
 NEWS_MEDIA_VERSION = 1
+NEWS_NARRATION_AUDIO_INTERVAL_SECONDS = 300
+NEWS_NARRATION_AUDIO_LIMIT = 5
+NEWS_NARRATION_AUDIO_VERSION = 1
 
 
 class SchedulerRunStatus(StrEnum):
@@ -43,6 +46,7 @@ class SchedulerIterationResult:
     priority_recovery_job_id: str | None = None
     script_enqueue_job_id: str | None = None
     media_production_job_id: str | None = None
+    narration_audio_job_id: str | None = None
 
 
 class SchedulerService:
@@ -138,6 +142,16 @@ class SchedulerService:
         )
         return f"news-media-production-{bucket}"
 
+    def _create_narration_audio_job_id(
+        self,
+        current_time: datetime,
+    ) -> str:
+        bucket = self._time_bucket(
+            current_time,
+            interval_seconds=NEWS_NARRATION_AUDIO_INTERVAL_SECONDS,
+        )
+        return f"news-narration-audio-prepare-{bucket}"
+
     def run_once(self) -> SchedulerIterationResult:
         if not self._scheduler_lock.acquire():
             return SchedulerIterationResult(
@@ -159,6 +173,7 @@ class SchedulerService:
             priority_recovery_job_id = self._create_priority_recovery_job_id(current_time)
             script_enqueue_job_id = self._create_script_enqueue_job_id(current_time)
             media_production_job_id = self._create_media_production_job_id(current_time)
+            narration_audio_job_id = self._create_narration_audio_job_id(current_time)
 
             enqueued_any = False
 
@@ -262,6 +277,22 @@ class SchedulerService:
             else:
                 enqueued_any = True
 
+            try:
+                self._queue_provider.enqueue(
+                    QueueName.DEFAULT,
+                    ("project_g.interfaces.workers.jobs.prepare_news_narration_audio_jobs"),
+                    kwargs={
+                        "limit": NEWS_NARRATION_AUDIO_LIMIT,
+                        "audio_version": NEWS_NARRATION_AUDIO_VERSION,
+                    },
+                    job_id=narration_audio_job_id,
+                    description="Prepare narration audio jobs",
+                )
+            except DuplicateJobError:
+                pass
+            else:
+                enqueued_any = True
+
             return SchedulerIterationResult(
                 status=(
                     SchedulerRunStatus.ENQUEUED
@@ -275,6 +306,7 @@ class SchedulerService:
                 priority_recovery_job_id=(priority_recovery_job_id),
                 script_enqueue_job_id=script_enqueue_job_id,
                 media_production_job_id=media_production_job_id,
+                narration_audio_job_id=narration_audio_job_id,
             )
         finally:
             self._scheduler_lock.release()
@@ -297,6 +329,7 @@ class SchedulerService:
                 priority_recovery_job_id=(result.priority_recovery_job_id),
                 script_enqueue_job_id=(result.script_enqueue_job_id),
                 media_production_job_id=(result.media_production_job_id),
+                narration_audio_job_id=(result.narration_audio_job_id),
             )
 
             stop_event.wait(self._settings.scheduler_interval_seconds)

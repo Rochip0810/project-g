@@ -95,6 +95,14 @@ class Settings(BaseSettings):
     openai_context_model: str = "gpt-5.6-luna"
     openai_script_model: str = "gpt-5.6-luna"
     openai_npb_player_model: str = "gpt-5.6-luna"
+    openai_tts_model: str = "gpt-4o-mini-tts"
+    openai_tts_voice: str = "marin"
+    openai_tts_format: str = "mp3"
+    openai_tts_instructions: str = (
+        "Speak in natural Japanese with clear pacing suitable "
+        "for a short-form sports news narration."
+    )
+    media_storage_root: str = "/app/media"
     openai_request_timeout_seconds: float = Field(
         default=30.0,
         gt=0,

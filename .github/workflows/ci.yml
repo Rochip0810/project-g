@@ -242,7 +242,7 @@ jobs:
           )"
 
           echo "Alembic revision: ${normalized_revision}"
-          test "${normalized_revision}" = "0009_news_media_productions"
+          test "${normalized_revision}" = "0010_narration_audio"
 
       - name: Run Docker smoke tests
         run: ./scripts/test-docker.sh
