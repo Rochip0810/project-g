@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+import hashlib
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from redis import Redis
@@ -13,20 +14,35 @@ from project_g.application.news.create_media_production_intakes import (
     CreateMediaProductionIntakes,
 )
 from project_g.application.news.create_priority_analysis import CreateNewsPriorityAnalysis
+from project_g.application.news.enqueue_news_narration_audio_generation import (
+    EnqueueNewsNarrationAudioGeneration,
+)
 from project_g.application.news.enqueue_news_script_generation import (
     EnqueueNewsScriptGeneration,
 )
 from project_g.application.news.enqueue_priority_analysis import EnqueueNewsPriorityAnalysis
 from project_g.application.news.enqueue_relevance_analysis import EnqueueNewsRelevanceAnalysis
 from project_g.application.news.generate_news_script import GenerateNewsScriptInput
+from project_g.application.news.manage_news_narration_audio_generation import (
+    ManageNewsNarrationAudioGeneration,
+)
 from project_g.application.news.manage_news_script_generation import (
     ManageNewsScriptGeneration,
+)
+from project_g.application.news.prepare_news_narration_audio_jobs import (
+    PrepareNewsNarrationAudioJobs,
 )
 from project_g.application.news.rank_candidates import RankNewsCandidates
 from project_g.application.news.select_news_script_enqueue_candidates import (
     SelectNewsScriptEnqueueCandidates,
 )
 from project_g.domain.news.article_metadata import NewsMetadataStatus
+from project_g.domain.news.media_production import (
+    NewsMediaProductionStatus,
+)
+from project_g.domain.news.narration_audio import (
+    NewsNarrationAudioStatus,
+)
 from project_g.domain.news.priority_analysis import NewsPriorityStatus
 from project_g.domain.news.relevance_analysis import (
     NewsRelevanceDecision,
@@ -37,6 +53,7 @@ from project_g.domain.news.script_generation import (
 )
 from project_g.infrastructure.ai.openai_priority import OpenAIPriorityAnalyzer
 from project_g.infrastructure.ai.openai_relevance import OpenAIRelevanceAnalyzer
+from project_g.infrastructure.audio import OpenAISpeechSynthesizer
 from project_g.infrastructure.collectors import (
     GiantsOfficialNewsCollector,
     GiantsOfficialNewsParser,
@@ -60,6 +77,8 @@ from project_g.infrastructure.database.repositories import (
     SqlAlchemyNewsArticleMetadataRepository,
     SqlAlchemyNewsMediaIntakeCandidateRepository,
     SqlAlchemyNewsMediaProductionRepository,
+    SqlAlchemyNewsNarrationAudioCandidateRepository,
+    SqlAlchemyNewsNarrationAudioGenerationRepository,
     SqlAlchemyNewsPriorityAnalysisRepository,
     SqlAlchemyNewsRelevanceAnalysisRepository,
     SqlAlchemyNewsScriptGenerationRepository,
@@ -73,9 +92,11 @@ from project_g.infrastructure.queue import (
     RQQueueProvider,
     create_redis_connection_pool,
 )
+from project_g.infrastructure.storage import LocalFileAudioStorage
 from project_g.interfaces.management.enrich_news_metadata import (
     enrich_news_metadata,
 )
+from project_g.ports.speech import SpeechSynthesisRequest
 from project_g.workflows.news_discovery import (
     NewsDiscoveryWorkflow,
     SqlAlchemyCollectionRegistrationRunner,
@@ -805,6 +826,414 @@ def create_news_media_production_intakes(
             "created_count": result.created_count,
             "duplicate_count": result.duplicate_count,
         }
+    finally:
+        engine.dispose()
+
+
+def prepare_news_narration_audio_jobs(
+    limit: int = 5,
+    audio_version: int = 1,
+) -> dict[str, str | int]:
+    """Persist durable narration-audio jobs and enqueue processing."""
+    if not 1 <= limit <= 50:
+        raise ValueError("limit must be between 1 and 50")
+
+    if audio_version < 1:
+        raise ValueError("audio_version must be at least 1")
+
+    settings = Settings()
+    engine = create_database_engine(settings)
+    factory = sessionmaker(
+        bind=engine,
+        expire_on_commit=False,
+    )
+
+    try:
+        prepared_at = datetime.now(UTC)
+        stale_before = prepared_at - timedelta(seconds=settings.rq_job_timeout_seconds)
+
+        # Transaction 1:
+        # Find eligible media and persist durable narration-audio
+        # generation records. No Redis or TTS work occurs here.
+        with factory.begin() as session:
+            candidate_repository = SqlAlchemyNewsNarrationAudioCandidateRepository(session)
+            generation_repository = SqlAlchemyNewsNarrationAudioGenerationRepository(session)
+
+            service = PrepareNewsNarrationAudioJobs(
+                candidate_repository=candidate_repository,
+                generation_repository=generation_repository,
+                clock=lambda: prepared_at,
+            )
+
+            result = service.execute(
+                audio_version=audio_version,
+                stale_before=stale_before,
+                limit=limit,
+                provider="openai",
+                model=settings.openai_tts_model,
+                voice=settings.openai_tts_voice,
+                audio_format=settings.openai_tts_format,
+            )
+
+        # The durable DB transaction has committed here.
+        # Redis enqueue is intentionally outside the transaction.
+        enqueued_count = 0
+        duplicate_count = 0
+
+        if result.jobs:
+            connection_pool = create_redis_connection_pool(
+                settings,
+                decode_responses=False,
+            )
+            connection = Redis.from_pool(connection_pool)
+
+            try:
+                queue_provider = RQQueueProvider(
+                    settings,
+                    connection,
+                )
+                enqueue_service = EnqueueNewsNarrationAudioGeneration(queue_provider=queue_provider)
+
+                for job in result.jobs:
+                    try:
+                        enqueue_service.execute(job)
+                    except DuplicateJobError:
+                        duplicate_count += 1
+                    else:
+                        enqueued_count += 1
+            finally:
+                connection.close()
+                connection_pool.close()
+
+        return {
+            "status": "processed",
+            "candidate_count": result.candidate_count,
+            "prepared_count": result.prepared_count,
+            "enqueued_count": enqueued_count,
+            "duplicate_count": duplicate_count,
+        }
+    finally:
+        engine.dispose()
+
+
+def process_news_narration_audio(
+    audio_generation_id: str,
+) -> dict[str, object] | Retry:
+    """Generate and durably persist narration audio."""
+
+    try:
+        parsed_audio_generation_id = UUID(audio_generation_id)
+    except ValueError as error:
+        raise ValueError(
+            f"Invalid narration audio generation UUID: {audio_generation_id}"
+        ) from error
+
+    settings = Settings()
+    engine = create_database_engine(settings)
+    factory = sessionmaker(
+        bind=engine,
+        expire_on_commit=False,
+    )
+
+    try:
+        claimed_generation = None
+        existing_generation = None
+        narration_text: str | None = None
+
+        # Transaction 1:
+        # Validate persisted input and atomically claim the audio
+        # generation. No TTS or filesystem work occurs here.
+        with factory.begin() as session:
+            audio_repository = SqlAlchemyNewsNarrationAudioGenerationRepository(session)
+
+            generation = audio_repository.get_by_audio_generation_id(parsed_audio_generation_id)
+
+            if generation is None:
+                raise RuntimeError(
+                    f"Narration audio generation was not found: {parsed_audio_generation_id}"
+                )
+
+            if generation.status is NewsNarrationAudioStatus.GENERATED:
+                existing_generation = generation
+            else:
+                media_repository = SqlAlchemyNewsMediaProductionRepository(session)
+                script_repository = SqlAlchemyNewsScriptGenerationRepository(session)
+
+                media_production = media_repository.get_by_media_production_id(
+                    generation.media_production_id
+                )
+
+                if media_production is None:
+                    raise RuntimeError(
+                        f"Media production was not found: {generation.media_production_id}"
+                    )
+
+                if media_production.status is NewsMediaProductionStatus.READY:
+                    raise RuntimeError("Ready media production has unfinished narration audio")
+
+                script_generation = script_repository.get_by_generation_id(
+                    media_production.script_generation_id
+                )
+
+                if script_generation is None:
+                    raise RuntimeError(
+                        "News script generation was not found: "
+                        f"{media_production.script_generation_id}"
+                    )
+
+                if script_generation.status is not NewsScriptGenerationStatus.GENERATED:
+                    raise RuntimeError("News script is not generated")
+
+                full_narration = script_generation.full_narration
+
+                if full_narration is None or not full_narration.strip():
+                    raise RuntimeError("Generated news script has no full narration")
+
+                normalized_narration = full_narration.strip()
+                source_text_sha256 = hashlib.sha256(
+                    normalized_narration.encode("utf-8")
+                ).hexdigest()
+
+                if source_text_sha256 != generation.source_text_sha256:
+                    raise RuntimeError(
+                        "Narration source hash does not match the persisted audio generation"
+                    )
+
+                manager = ManageNewsNarrationAudioGeneration(
+                    repository=audio_repository,
+                )
+
+                claimed_generation = manager.claim(
+                    media_production_id=(generation.media_production_id),
+                    audio_version=(generation.audio_version),
+                    stale_after_seconds=(settings.rq_job_timeout_seconds),
+                )
+
+                if claimed_generation is None:
+                    existing_generation = audio_repository.get_by_audio_generation_id(
+                        parsed_audio_generation_id
+                    )
+
+                    if existing_generation is None:
+                        raise RuntimeError("Narration audio state disappeared while claiming")
+                else:
+                    if claimed_generation.audio_generation_id != parsed_audio_generation_id:
+                        raise RuntimeError(
+                            "Claimed narration audio generation does not match requested generation"
+                        )
+
+                    started_at = claimed_generation.started_at
+
+                    if started_at is None:
+                        raise RuntimeError("Claimed narration audio has no started_at")
+
+                    if media_production.status in {
+                        NewsMediaProductionStatus.PENDING,
+                        NewsMediaProductionStatus.FAILED,
+                    }:
+                        media_repository.update(media_production.start(started_at=started_at))
+                    elif media_production.status is not NewsMediaProductionStatus.PROCESSING:
+                        raise RuntimeError(
+                            "Media production is not eligible for narration processing"
+                        )
+
+                    narration_text = normalized_narration
+
+        # The claim transaction has committed here.
+        # TTS and file IO happen only after the DB transaction
+        # has been released.
+        if claimed_generation is None:
+            assert existing_generation is not None
+
+            if existing_generation.status is NewsNarrationAudioStatus.GENERATED:
+                return {
+                    "status": "already_generated",
+                    "audio_generation_id": str(existing_generation.audio_generation_id),
+                    "media_production_id": str(existing_generation.media_production_id),
+                    "storage_key": (existing_generation.storage_key),
+                    "byte_size": (existing_generation.byte_size),
+                    "content_sha256": (existing_generation.content_sha256),
+                }
+
+            if existing_generation.status is NewsNarrationAudioStatus.GENERATING:
+                return Retry(
+                    max=1,
+                    interval=(settings.rq_job_timeout_seconds),
+                )
+
+            return {
+                "status": existing_generation.status.value,
+                "audio_generation_id": str(existing_generation.audio_generation_id),
+                "media_production_id": str(existing_generation.media_production_id),
+            }
+
+        assert narration_text is not None
+
+        storage_key = (
+            "media/audio/"
+            f"{claimed_generation.media_production_id}/"
+            f"v{claimed_generation.audio_version}."
+            f"{claimed_generation.audio_format}"
+        )
+
+        try:
+            storage = LocalFileAudioStorage(root_directory=(settings.media_storage_root))
+
+            # Crash recovery:
+            # if the canonical artifact already exists from a
+            # previous attempt, reuse it instead of paying for
+            # another TTS call.
+            artifact = storage.get(storage_key=storage_key)
+
+            if artifact is None:
+                if claimed_generation.provider != "openai":
+                    raise RuntimeError(
+                        f"Unsupported narration speech provider: {claimed_generation.provider}"
+                    )
+
+                synthesizer = OpenAISpeechSynthesizer(
+                    api_key=(settings.openai_api_key.get_secret_value()),
+                    timeout_seconds=(settings.openai_request_timeout_seconds),
+                )
+
+                audio_data = synthesizer.synthesize(
+                    SpeechSynthesisRequest(
+                        text=narration_text,
+                        model=claimed_generation.model,
+                        voice=claimed_generation.voice,
+                        audio_format=(claimed_generation.audio_format),
+                        instructions=(settings.openai_tts_instructions),
+                    )
+                )
+
+                artifact = storage.write(
+                    storage_key=storage_key,
+                    data=audio_data,
+                )
+
+        except Exception as error:
+            failure_reason = f"{type(error).__name__}: narration audio generation failed"
+            failed_at = datetime.now(UTC)
+            failure_persisted = False
+
+            # Transaction 2a:
+            # Persist failure only if this worker still owns
+            # the same durable attempt.
+            with factory.begin() as session:
+                audio_repository = SqlAlchemyNewsNarrationAudioGenerationRepository(session)
+                media_repository = SqlAlchemyNewsMediaProductionRepository(session)
+
+                current_generation = audio_repository.get_by_audio_generation_id(
+                    parsed_audio_generation_id
+                )
+
+                if current_generation is None:
+                    raise RuntimeError(
+                        "Narration audio state disappeared while recording failure"
+                    ) from error
+
+                if (
+                    current_generation.status is NewsNarrationAudioStatus.GENERATING
+                    and current_generation.attempt_count == claimed_generation.attempt_count
+                ):
+                    manager = ManageNewsNarrationAudioGeneration(
+                        repository=audio_repository,
+                        clock=lambda: failed_at,
+                    )
+                    manager.mark_failed(
+                        audio_generation_id=(parsed_audio_generation_id),
+                        reason=failure_reason,
+                    )
+                    failure_persisted = True
+
+                    media_production = media_repository.get_by_media_production_id(
+                        current_generation.media_production_id
+                    )
+
+                    if media_production is None:
+                        raise RuntimeError(
+                            "Media production disappeared while recording narration failure"
+                        ) from error
+
+                    if media_production.status is NewsMediaProductionStatus.PROCESSING:
+                        media_repository.update(
+                            media_production.mark_failed(
+                                reason=failure_reason,
+                                completed_at=failed_at,
+                            )
+                        )
+
+            if not failure_persisted:
+                return {
+                    "status": "superseded",
+                    "audio_generation_id": str(parsed_audio_generation_id),
+                }
+
+            # Expected TTS/storage failures are represented by
+            # durable FAILED state. The 5-minute orchestration
+            # will create the next deterministic attempt.
+            return {
+                "status": "failed",
+                "audio_generation_id": str(parsed_audio_generation_id),
+                "failure_type": (type(error).__name__),
+            }
+
+        completed_at = datetime.now(UTC)
+
+        # Transaction 2b:
+        # Persist GENERATED only if this worker still owns the
+        # claimed attempt. Media production intentionally stays
+        # PROCESSING for SCRIPT-008.
+        with factory.begin() as session:
+            audio_repository = SqlAlchemyNewsNarrationAudioGenerationRepository(session)
+
+            current_generation = audio_repository.get_by_audio_generation_id(
+                parsed_audio_generation_id
+            )
+
+            if current_generation is None:
+                raise RuntimeError("Narration audio state disappeared while recording success")
+
+            if current_generation.status is NewsNarrationAudioStatus.GENERATED:
+                return {
+                    "status": "already_generated",
+                    "audio_generation_id": str(current_generation.audio_generation_id),
+                    "media_production_id": str(current_generation.media_production_id),
+                    "storage_key": (current_generation.storage_key),
+                    "byte_size": (current_generation.byte_size),
+                    "content_sha256": (current_generation.content_sha256),
+                }
+
+            if (
+                current_generation.status is not NewsNarrationAudioStatus.GENERATING
+                or current_generation.attempt_count != claimed_generation.attempt_count
+            ):
+                return {
+                    "status": "superseded",
+                    "audio_generation_id": str(parsed_audio_generation_id),
+                }
+
+            manager = ManageNewsNarrationAudioGeneration(
+                repository=audio_repository,
+                clock=lambda: completed_at,
+            )
+
+            generated = manager.record_generated(
+                audio_generation_id=(parsed_audio_generation_id),
+                storage_key=artifact.storage_key,
+                byte_size=artifact.byte_size,
+                content_sha256=(artifact.content_sha256),
+            )
+
+        return {
+            "status": "generated",
+            "audio_generation_id": str(generated.audio_generation_id),
+            "media_production_id": str(generated.media_production_id),
+            "storage_key": generated.storage_key,
+            "byte_size": generated.byte_size,
+            "content_sha256": (generated.content_sha256),
+        }
+
     finally:
         engine.dispose()
 

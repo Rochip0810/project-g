@@ -10,6 +10,12 @@ from project_g.infrastructure.database.repositories.news_media_intake_candidates
 from project_g.infrastructure.database.repositories.news_media_productions import (
     SqlAlchemyNewsMediaProductionRepository,
 )
+from project_g.infrastructure.database.repositories.news_narration_audio_candidates import (
+    SqlAlchemyNewsNarrationAudioCandidateRepository,
+)
+from project_g.infrastructure.database.repositories.news_narration_audio_generations import (
+    SqlAlchemyNewsNarrationAudioGenerationRepository,
+)
 from project_g.infrastructure.database.repositories.news_priority_analyses import (
     SqlAlchemyNewsPriorityAnalysisRepository,
 )
@@ -34,6 +40,8 @@ __all__ = [
     "SqlAlchemyNewsArticleMetadataRepository",
     "SqlAlchemyNewsMediaIntakeCandidateRepository",
     "SqlAlchemyNewsMediaProductionRepository",
+    "SqlAlchemyNewsNarrationAudioCandidateRepository",
+    "SqlAlchemyNewsNarrationAudioGenerationRepository",
     "SqlAlchemyNewsPriorityAnalysisRepository",
     "SqlAlchemyNewsProcessingJobRepository",
     "SqlAlchemyNewsRelevanceAnalysisRepository",

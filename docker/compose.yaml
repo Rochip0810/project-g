@@ -109,6 +109,8 @@ services:
     <<: *app-common
     command:
       - project-g-worker
+    volumes:
+      - media_data:/app/media
     depends_on:
       queue:
         condition: service_healthy
@@ -130,6 +132,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  media_data:
 
 networks:
   project_g_internal:
