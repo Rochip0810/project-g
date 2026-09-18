@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from typing import cast
 from uuid import UUID
 
 import pytest
@@ -20,9 +21,15 @@ from project_g.domain.news.manual_intake import (
 )
 from project_g.domain.news.script_generation import (
     InvalidNewsScriptGenerationError,
+    NewsScriptCharacter,
+    NewsScriptDialogueLine,
+    NewsScriptEmotion,
     NewsScriptEvidenceSnapshot,
     NewsScriptGeneration,
     NewsScriptGenerationStatus,
+)
+from project_g.infrastructure.database.models.news_script_generation import (
+    NewsScriptGenerationRecord,
 )
 from project_g.infrastructure.database.repositories import (
     SqlAlchemyManualNewsIntakeRepository,
@@ -114,7 +121,27 @@ def _pending(
     )
 
 
-def _generated() -> NewsScriptGeneration:
+def _generated(
+    *,
+    closing: str | None = "今後の起用に注目です。",
+) -> NewsScriptGeneration:
+    dialogue = (
+        NewsScriptDialogueLine(
+            character=NewsScriptCharacter.JAN,
+            emotion=NewsScriptEmotion.CRITICAL,
+            intensity=4,
+            break_character=False,
+            text="いや、これはさすがに気になるわ。",
+        ),
+        NewsScriptDialogueLine(
+            character=NewsScriptCharacter.AN,
+            emotion=NewsScriptEmotion.SUPPORTIVE,
+            intensity=3,
+            break_character=False,
+            text="でも、良かったところもちゃんとあったよ。",
+        ),
+    )
+
     evidence = (
         NewsScriptEvidenceSnapshot(
             text="則本はファーム戦で6回4失点だった。",
@@ -134,10 +161,11 @@ def _generated() -> NewsScriptGeneration:
             hook="則本昂大が1軍に合流。",
             main_narration=("巨人の則本昂大投手が1軍に合流しました。"),
             project_g_comment=("内容は手放しで安心できるもんやないな。"),
-            closing="今後の起用に注目です。",
+            closing=closing,
             full_narration="完成したナレーション全文",
             evidence_snapshot=evidence,
             completed_at=_BASE_TIME + timedelta(minutes=2),
+            character_dialogue=dialogue,
         )
     )
 
@@ -166,6 +194,26 @@ def test_repository_adds_and_retrieves_generation(
     )
 
 
+def test_repository_round_trips_generated_without_closing(
+    migrated_session: Session,
+) -> None:
+    _seed_intake(migrated_session)
+
+    repository = SqlAlchemyNewsScriptGenerationRepository(migrated_session)
+
+    generation = _generated(closing=None)
+    repository.add(generation)
+
+    migrated_session.commit()
+    migrated_session.expire_all()
+
+    loaded = repository.get_by_generation_id(generation.generation_id)
+
+    assert loaded is not None
+    assert loaded.closing is None
+    assert loaded == generation
+
+
 def test_repository_updates_generated_output(
     migrated_session: Session,
 ) -> None:
@@ -188,6 +236,10 @@ def test_repository_updates_generated_output(
     assert stored.ranking_score == 91
     assert stored.evidence_snapshot is not None
     assert len(stored.evidence_snapshot) == 1
+    assert stored.character_dialogue is not None
+    assert len(stored.character_dialogue) == 2
+    assert stored.character_dialogue[0].character is NewsScriptCharacter.JAN
+    assert stored.character_dialogue[1].character is NewsScriptCharacter.AN
     assert loaded == generated
 
 
@@ -479,3 +531,77 @@ def test_repository_atomically_reclaims_stale_generating_generation(
     assert reclaimed.failure_reason is None
 
     assert competing_claim is None
+
+
+@pytest.mark.parametrize(
+    "character_dialogue",
+    [
+        ["not-a-dict"],
+        [
+            {
+                "character": "jan",
+                "emotion": "critical",
+                "intensity": 4,
+                "break_character": False,
+            }
+        ],
+        [
+            {
+                "character": "jan",
+                "emotion": "critical",
+                "intensity": "4",
+                "break_character": False,
+                "text": "これは気になるわ。",
+            }
+        ],
+        [
+            {
+                "character": "jan",
+                "emotion": "critical",
+                "intensity": 4,
+                "break_character": "false",
+                "text": "これは気になるわ。",
+            }
+        ],
+        [
+            {
+                "character": "unknown",
+                "emotion": "critical",
+                "intensity": 4,
+                "break_character": False,
+                "text": "これは気になるわ。",
+            }
+        ],
+        [
+            {
+                "character": "jan",
+                "emotion": "unknown",
+                "intensity": 4,
+                "break_character": False,
+                "text": "これは気になるわ。",
+            }
+        ],
+    ],
+    ids=[
+        "item-is-not-dict",
+        "missing-required-key",
+        "invalid-intensity-type",
+        "invalid-break-character-type",
+        "invalid-character-enum",
+        "invalid-emotion-enum",
+    ],
+)
+def test_model_rejects_invalid_character_dialogue_json(
+    character_dialogue: object,
+) -> None:
+    record = NewsScriptGenerationRecord.from_domain(_generated())
+    record.character_dialogue = cast(
+        list[dict[str, object]],
+        character_dialogue,
+    )
+
+    with pytest.raises(
+        InvalidNewsScriptGenerationError,
+        match="character_dialogue item is invalid",
+    ):
+        record.to_domain()

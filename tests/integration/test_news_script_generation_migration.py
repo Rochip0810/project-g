@@ -112,3 +112,53 @@ def test_news_script_generation_migration_upgrade_and_downgrade(
         alembic_config,
         "head",
     )
+
+
+def test_character_dialogue_migration_upgrade_and_downgrade(
+    alembic_config: Config,
+    database_engine: Engine,
+) -> None:
+    command.upgrade(
+        alembic_config,
+        "0010_narration_audio",
+    )
+
+    inspector = inspect(database_engine)
+    columns = {
+        column["name"]: column for column in inspector.get_columns("news_script_generations")
+    }
+
+    assert "character_dialogue" not in columns
+    assert get_current_revision(database_engine) == "0010_narration_audio"
+
+    command.upgrade(
+        alembic_config,
+        "0011_character_dialogue",
+    )
+
+    inspector = inspect(database_engine)
+    columns = {
+        column["name"]: column for column in inspector.get_columns("news_script_generations")
+    }
+
+    assert "character_dialogue" in columns
+    assert columns["character_dialogue"]["nullable"] is True
+    assert get_current_revision(database_engine) == "0011_character_dialogue"
+
+    command.downgrade(
+        alembic_config,
+        "0010_narration_audio",
+    )
+
+    inspector = inspect(database_engine)
+    columns = {
+        column["name"]: column for column in inspector.get_columns("news_script_generations")
+    }
+
+    assert "character_dialogue" not in columns
+    assert get_current_revision(database_engine) == "0010_narration_audio"
+
+    command.upgrade(
+        alembic_config,
+        "head",
+    )

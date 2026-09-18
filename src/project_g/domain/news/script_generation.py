@@ -16,6 +16,22 @@ class NewsScriptGenerationStatus(StrEnum):
     FAILED = "failed"
 
 
+class NewsScriptCharacter(StrEnum):
+    JAN = "jan"
+    AN = "an"
+    TSUN = "tsun"
+
+
+class NewsScriptEmotion(StrEnum):
+    NEUTRAL = "neutral"
+    CRITICAL = "critical"
+    DISAPPOINTED = "disappointed"
+    SUPPORTIVE = "supportive"
+    CELEBRATORY = "celebratory"
+    ECSTATIC = "ecstatic"
+    PLAYFUL = "playful"
+
+
 class InvalidNewsScriptGenerationError(ValueError):
     """Raised when script-generation data is inconsistent."""
 
@@ -60,6 +76,35 @@ def _normalize_failure_reason(
         )
 
     return normalized
+
+
+@dataclass(frozen=True, slots=True)
+class NewsScriptDialogueLine:
+    character: NewsScriptCharacter
+    emotion: NewsScriptEmotion
+    intensity: int
+    break_character: bool
+    text: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "text",
+            _normalize_required_text(
+                self.text,
+                field_name="dialogue text",
+            ),
+        )
+
+        if not 1 <= self.intensity <= 5:
+            raise InvalidNewsScriptGenerationError("dialogue intensity must be between 1 and 5")
+
+        if self.break_character and not (
+            self.character is NewsScriptCharacter.JAN and self.emotion is NewsScriptEmotion.ECSTATIC
+        ):
+            raise InvalidNewsScriptGenerationError(
+                "break_character is only valid for Jan in ecstatic mode"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +163,8 @@ class NewsScriptGeneration:
     started_at: datetime | None
     completed_at: datetime | None
     updated_at: datetime
+
+    character_dialogue: tuple[NewsScriptDialogueLine, ...] | None = None
 
     @classmethod
     def pending(
@@ -187,10 +234,11 @@ class NewsScriptGeneration:
         hook: str,
         main_narration: str,
         project_g_comment: str,
-        closing: str,
+        closing: str | None,
         full_narration: str,
         evidence_snapshot: tuple[NewsScriptEvidenceSnapshot, ...],
         completed_at: datetime,
+        character_dialogue: tuple[NewsScriptDialogueLine, ...] | None = None,
     ) -> "NewsScriptGeneration":
         self._require_generating()
 
@@ -204,6 +252,7 @@ class NewsScriptGeneration:
             closing=closing,
             full_narration=full_narration,
             evidence_snapshot=evidence_snapshot,
+            character_dialogue=character_dialogue,
             completed_at=completed_at,
             updated_at=completed_at,
         )
@@ -281,6 +330,7 @@ class NewsScriptGeneration:
             )
 
         self._normalize_optional_fields()
+        self._normalize_character_dialogue()
         self._validate_status_fields()
 
     def _normalize_optional_fields(self) -> None:
@@ -316,6 +366,33 @@ class NewsScriptGeneration:
                 "evidence_snapshot",
                 tuple(self.evidence_snapshot),
             )
+
+    def _normalize_character_dialogue(self) -> None:
+        if self.character_dialogue is None:
+            return
+
+        dialogue = tuple(self.character_dialogue)
+
+        if not dialogue:
+            raise InvalidNewsScriptGenerationError(
+                "character_dialogue must not be empty when provided"
+            )
+
+        if len(dialogue) > 6:
+            raise InvalidNewsScriptGenerationError(
+                "character_dialogue must not contain more than 6 lines"
+            )
+
+        if not all(isinstance(line, NewsScriptDialogueLine) for line in dialogue):
+            raise InvalidNewsScriptGenerationError(
+                "character_dialogue must contain NewsScriptDialogueLine values"
+            )
+
+        object.__setattr__(
+            self,
+            "character_dialogue",
+            dialogue,
+        )
 
     def _validate_status_fields(self) -> None:
         if self.status is NewsScriptGenerationStatus.PENDING:
@@ -389,15 +466,17 @@ class NewsScriptGeneration:
             )
 
     def _has_script_output(self) -> bool:
-        return any(
-            value is not None
-            for value in (
-                self.hook,
-                self.main_narration,
-                self.project_g_comment,
-                self.closing,
-                self.full_narration,
+        return (
+            any(
+                value is not None
+                for value in (
+                    self.hook,
+                    self.main_narration,
+                    self.project_g_comment,
+                    self.full_narration,
+                )
             )
+            or self.character_dialogue is not None
         )
 
     def _has_complete_script_output(self) -> bool:
@@ -407,7 +486,6 @@ class NewsScriptGeneration:
                 self.hook,
                 self.main_narration,
                 self.project_g_comment,
-                self.closing,
                 self.full_narration,
             )
         )
