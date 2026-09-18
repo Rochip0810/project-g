@@ -13,6 +13,9 @@ from project_g.application.news.manage_news_script_generation import (
 from project_g.domain.news.competition import CompetitionLevel
 from project_g.domain.news.evidence_role import EvidenceRole
 from project_g.domain.news.script_generation import (
+    NewsScriptCharacter,
+    NewsScriptDialogueLine,
+    NewsScriptEmotion,
     NewsScriptGeneration,
     NewsScriptGenerationStatus,
 )
@@ -167,6 +170,22 @@ def _result() -> GenerateNewsScriptResult:
         project_g_comment=("内容は手放しで安心できるもんやないな。"),
         closing="今後の起用に注目です。",
         full_narration="完成したナレーション全文",
+        character_dialogue=(
+            NewsScriptDialogueLine(
+                character=NewsScriptCharacter.JAN,
+                emotion=NewsScriptEmotion.CRITICAL,
+                intensity=4,
+                break_character=False,
+                text="内容は手放しで安心できるもんやないな。",
+            ),
+            NewsScriptDialogueLine(
+                character=NewsScriptCharacter.AN,
+                emotion=NewsScriptEmotion.SUPPORTIVE,
+                intensity=2,
+                break_character=False,
+                text="でも、ここから上げていってほしいね。",
+            ),
+        ),
         evidence_points=(),
     )
 

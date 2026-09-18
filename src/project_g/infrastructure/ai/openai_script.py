@@ -3,6 +3,11 @@ import json
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
+from project_g.domain.news.script_generation import (
+    NewsScriptCharacter,
+    NewsScriptDialogueLine,
+    NewsScriptEmotion,
+)
 from project_g.ports.news_script import (
     NewsScriptGeneratorInput,
     NewsScriptGeneratorResult,
@@ -39,25 +44,151 @@ Writing structure:
    - Facts must come only from title and description.
    - Do not add editorial opinion here.
 
-3. project_g_comment
-   - Write ONLY this section in natural, modern spoken Kansai dialect.
-   - Sound like an adult Kansai-native Giants fan talking naturally.
-   - Do NOT sound like a comedian or a stereotypical Kansai character.
-   - Editorial sharpness is Level 5 out of 5 when criticism is justified.
-   - Be direct, dry, witty, and memorable.
-   - Strong criticism of baseball performance, tactics, decisions,
-     and results is allowed when supported by the supplied facts.
-   - Never attack a person's dignity, appearance, family, identity,
+3. character_dialogue
+   - Create a short character exchange using 1 to 6 dialogue lines.
+   - Usually use 3 to 5 lines. Two lines are fine when a short exchange
+     is clearly stronger.
+   - Use 1, 2, or 3 characters depending on the story.
+     Do NOT force all three characters into every script.
+   - The goal is KAKÉAI: a genuine conversational back-and-forth,
+     not several independent comments placed one after another.
+   - After the first line, every line must clearly react to the immediately
+     previous line by picking up its opinion, wording, attitude, or emotion.
+   - Use natural conversational moves such as agreement, disagreement,
+     pushback, correction, addition, a question back, teasing,
+     surprise, or emotional interruption.
+   - It is valid and often better for the same character to speak twice,
+     for example JAN -> AN -> JAN or TSUN -> JAN -> TSUN.
+   - Characters may directly react to another character's personality
+     when natural. For example, TSUN may notice that JAN unexpectedly
+     praised someone, or AN may point out that JAN is being too strict.
+   - Keep each dialogue line relatively short and spoken.
+     Prefer one or two short sentences instead of mini-speeches.
+   - main_narration already explains the news facts.
+     Do NOT make each character repeat or summarize the same facts again.
+   - A character may mention a key supplied fact when needed to support
+     an opinion, but the purpose of dialogue is reaction and interaction,
+     not another factual recap.
+   - At least one line in a multi-line exchange should respond to
+     the OTHER CHARACTER, not only to the news itself.
+   - Merely reacting to the same news is NOT enough to count as a reply
+     to the previous character.
+   - Ask yourself: if the previous dialogue line were deleted, would this
+     line still make almost exactly the same sense?
+     If yes, rewrite it so it depends more clearly on the previous speaker.
+   - Prefer explicit conversational callbacks when natural, such as
+     「それはそうやけど」「そうやねん」「いや、そこは」
+     「たしかに」「じゃあ」「今ジャン褒めた?」.
+     Do not force these exact phrases.
+   - When JAN unexpectedly praises someone, it is often useful for AN or
+     TSUN to react to the fact that JAN praised them.
+   - When another character directly teases or comments on JAN's personality,
+     consider giving JAN one short reply so the exchange completes naturally.
+   - For example:
+     JAN: 「今日は文句ないわ。ようやった。」
+     AN or TSUN: 「ジャンまで褒めた!」
+     JAN: 「俺かて褒める時は褒めるわ。」
+   - Use this kind of callback only when it feels natural.
+     Do not force the same joke or wording into every positive story.
+   - When JAN has break_character=true and another character is present,
+     at least one other character should react to JAN's unusual excitement
+     when that improves the exchange.
+   - Avoid ending a multi-character exchange with a standalone comment
+     that nobody responds to, unless that final line is clearly the
+     strongest emotional ending.
+   - Do NOT force disagreement. Characters may agree, reinforce each other,
+     tease each other, or celebrate together when that is natural.
+   - Light teasing and playful interruption are welcome when they emerge
+     naturally from the characters.
+   - Do NOT turn the dialogue into a comedy sketch.
+     Baseball opinion, fan emotion, and the news topic must remain central.
+   - Never invent a fact merely to create conflict or a better conversation.
+   - Dialogue may use supplied background_evidence under the same grounding
+     restrictions as project_g_comment.
+
+   Character definitions:
+
+   JAN:
+   - The sharp, evidence-based critic.
+   - Usually calm, observant, dry, and slightly Kansai in everyday speech.
+   - Criticize performance, tactics, repeated mistakes, or decisions only
+     when the supplied facts support the criticism.
+   - CRITICAL means there is a concrete problem, preventable mistake,
+     questionable decision, or supported reason to demand improvement.
+   - DISAPPOINTED means the result hurts but there is not a fair basis
+     to attack someone. In this mode, stop the poison rather than becoming
+     unrealistically gentle.
+   - When praising, Jan is usually restrained:
+     「今日は文句ないわ。ようやった。」 is the intended feeling.
+   - Jan has one rare special mode: ECSTATIC with break_character=true.
+   - This is reserved for maximum-level Giants joy directly supported
+     by the supplied facts, such as a championship, extraordinary dramatic
+     comeback or walk-off, major draft-lottery success, historic record,
+     or similarly exceptional fan-wide event.
+   - In that rare mode Jan may temporarily lose his usual composure,
+     become loudly emotional, and use stronger natural Kansai speech.
+   - Do NOT activate break_character for ordinary positive news,
+     an ordinary home run, ordinary win, or routine good performance.
+
+   AN:
+   - The supportive, empathetic, forward-looking voice.
+   - Usually speaks gentle standard Japanese or standard-Japanese-leaning
+     casual speech.
+   - Natural Kansai wording may appear more strongly when An becomes
+     emotional, excited, worried, or deeply supportive.
+   - Do not blindly defend bad performance.
+     Acknowledge the problem first when appropriate, then identify a genuine
+     positive, improvement, effort, or reason for hope supported by facts.
+
+   TSUN:
+   - The emotional fan voice for excitement, praise, shared joy,
+     and sometimes shared frustration.
+   - Tsun does not need to perform deep analysis.
+   - When excitement rises, natural Kansai speech may become stronger.
+   - On strongly positive news, Tsun may enthusiastically interrupt
+     calmer reactions when that makes the exchange feel alive.
+
+   Allowed emotion values:
+   - neutral
+   - critical
+   - disappointed
+   - supportive
+   - celebratory
+   - ecstatic
+   - playful
+
+   intensity:
+   - Integer from 1 to 5.
+   - 1 means calm/minimal emotion.
+   - 5 means maximum emotion.
+
+   break_character:
+   - Normally false.
+   - May be true ONLY for JAN + ecstatic.
+   - Even for JAN + ecstatic, use true only for truly exceptional joy.
+
+4. project_g_comment
+   - This is Project G's OWN short editorial view after the character exchange.
+   - It is not another character line.
+   - Prefer 1 or 2 short spoken sentences.
+   - Project G may agree with Jan, An, Tsun, none of them, or combine
+     parts of their views.
+   - State one clear Giants-fan viewpoint.
+   - Use natural, modern spoken Kansai dialect, but keep it concise.
+   - Do NOT sound like a comedian or stereotypical Kansai character.
+   - Editorial sharpness may reach Level 5 out of 5 when criticism is
+     justified by supplied evidence.
+   - Strong criticism must stay focused on baseball performance, tactics,
+     decisions, usage, and results.
+   - Never attack dignity, appearance, family, identity,
      or unrelated personal characteristics.
-   - Never invent facts to make criticism stronger.
+   - Do not invent facts to strengthen the conclusion.
+   - If the news is positive, do not force negativity.
+     Praise it naturally instead of forcing poison.
    - Do not add unsupported temporal or emotional framing such as
      "finally", "at last", "long-awaited", "comeback", or similar
      wording unless the title or description directly supports it.
-   - Express opinion clearly as opinion.
-   - If the news is positive, do not force negativity.
-     Praise strongly and naturally when deserved.
-   - Add a viewpoint instead of merely repeating the news.
-   - Prefer 2 to 4 short spoken sentences.
+   - If evidence is thin, keep the conclusion narrow.
 
 Background evidence rules:
 - background_evidence is optional verified context supplied by Project G.
@@ -69,7 +200,8 @@ Background evidence rules:
   or tactical circumstances.
 - main_narration must NOT use background_evidence.
   It remains grounded only in title and description.
-- project_g_comment MAY use background_evidence to create a more specific opinion.
+- character_dialogue and project_g_comment MAY use background_evidence
+  to create a more specific opinion.
 - Never invent information beyond the supplied background_evidence.
 - Never calculate or state a new total, average, rate, difference,
   percentage, trend value, or other derived number from multiple
@@ -174,10 +306,33 @@ Kansai dialect style guide:
 - Do not stack stereotypical Kansai phrases.
 - The goal is natural speech a real Kansai native might use.
 
-4. closing
-   - Use standard Japanese.
-   - One short natural ending suitable for Shorts.
-   - Do not introduce a new fact.
+5. closing
+   - closing is OPTIONAL. Return null when a viewer question would feel
+     forced, obvious, repetitive, or would weaken the emotional ending.
+   - Use a closing mainly when the news contains a genuine baseball decision,
+     disagreement, roster question, tactical choice, or other topic where
+     fan opinions can meaningfully differ.
+   - If the story contains a repeated correctable problem, a lineup or roster
+     decision, or a tactical choice, prefer a meaningful open-ended closing
+     unless the emotional ending is clearly stronger without one.
+   - When asking viewers, prefer an OPEN-ENDED decision question that invites
+     a concrete opinion.
+   - Do NOT use simple yes/no questions such as
+     「修正できると思いますか?」.
+   - Do NOT ask generic emotional questions such as
+     「どう感じましたか?」 when the emotion is already obvious.
+   - Do NOT turn the closing into a forced binary choice such as
+     「AとB、どちらを選ぶ?」 or 「AとB、どちらを先に求める?」.
+   - When concrete options are mentioned, keep the answer space open.
+   - When useful, offer concrete choices while still allowing other answers,
+     for example:
+     「みんなならどう立て直す?スタメン変更?守備固め?
+     それとも二軍で調整?」
+   - For straightforward celebration or praise, closing may be null.
+   - If JAN has break_character=true, closing MUST be null.
+     Let the emotional character moment be the ending.
+   - Standard Japanese or light natural Kansai speech is allowed.
+   - Do not introduce a new factual claim.
 
    - Combine the intended spoken content into one coherent narration.
    - Keep factual narration in standard Japanese.
@@ -189,6 +344,25 @@ Do not mention these scores in the narration.
 
 Return all fields in Japanese.
 """.strip()
+
+
+class OpenAINewsScriptDialogueLine(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+    character: NewsScriptCharacter
+    emotion: NewsScriptEmotion
+    intensity: int = Field(
+        ge=1,
+        le=5,
+    )
+    break_character: bool
+    text: str = Field(
+        min_length=1,
+        max_length=300,
+    )
 
 
 class OpenAINewsScriptOutput(BaseModel):
@@ -205,11 +379,16 @@ class OpenAINewsScriptOutput(BaseModel):
         min_length=1,
         max_length=1000,
     )
+    character_dialogue: list[OpenAINewsScriptDialogueLine] = Field(
+        min_length=1,
+        max_length=6,
+    )
     project_g_comment: str = Field(
         min_length=1,
         max_length=600,
     )
-    closing: str = Field(
+    closing: str | None = Field(
+        default=None,
         min_length=1,
         max_length=200,
     )
@@ -295,19 +474,33 @@ class OpenAINewsScriptGenerator:
         if output is None:
             raise OpenAINewsScriptResponseError("OpenAI returned no parsed script output")
 
+        character_dialogue = tuple(
+            NewsScriptDialogueLine(
+                character=line.character,
+                emotion=line.emotion,
+                intensity=line.intensity,
+                break_character=line.break_character,
+                text=line.text,
+            )
+            for line in output.character_dialogue
+        )
+
+        narration_parts = [
+            output.hook,
+            output.main_narration,
+            "ここからはPROJECT Gの見解です。",
+            output.project_g_comment,
+        ]
+
+        if output.closing is not None:
+            narration_parts.append(output.closing)
+
         return NewsScriptGeneratorResult(
             hook=output.hook,
             main_narration=output.main_narration,
             project_g_comment=output.project_g_comment,
             closing=output.closing,
-            full_narration="\n\n".join(
-                (
-                    output.hook,
-                    output.main_narration,
-                    "ここからはPROJECT Gの見解です。",
-                    output.project_g_comment,
-                    output.closing,
-                )
-            ),
+            full_narration="\n\n".join(narration_parts),
+            character_dialogue=character_dialogue,
             evidence_points=input_data.background_facts,
         )

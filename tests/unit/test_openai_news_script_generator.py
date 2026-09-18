@@ -8,7 +8,13 @@ import pytest
 import project_g.infrastructure.ai.openai_script as module
 from project_g.domain.news.competition import CompetitionLevel
 from project_g.domain.news.evidence_role import EvidenceRole
+from project_g.domain.news.script_generation import (
+    InvalidNewsScriptGenerationError,
+    NewsScriptCharacter,
+    NewsScriptEmotion,
+)
 from project_g.infrastructure.ai.openai_script import (
+    OpenAINewsScriptDialogueLine,
     OpenAINewsScriptGenerator,
     OpenAINewsScriptOutput,
     OpenAINewsScriptResponseError,
@@ -59,11 +65,39 @@ def _input() -> NewsScriptGeneratorInput:
     )
 
 
+def _script_output(
+    *,
+    hook: str,
+    main_narration: str,
+    project_g_comment: str,
+    closing: str,
+    character_dialogue: list[OpenAINewsScriptDialogueLine] | None = None,
+) -> OpenAINewsScriptOutput:
+    if character_dialogue is None:
+        character_dialogue = [
+            OpenAINewsScriptDialogueLine(
+                character=NewsScriptCharacter.JAN,
+                emotion=NewsScriptEmotion.NEUTRAL,
+                intensity=1,
+                break_character=False,
+                text="まずは事実を見たいな。",
+            )
+        ]
+
+    return OpenAINewsScriptOutput(
+        hook=hook,
+        main_narration=main_narration,
+        character_dialogue=character_dialogue,
+        project_g_comment=project_g_comment,
+        closing=closing,
+    )
+
+
 def test_generator_returns_structured_script(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_client = FakeOpenAIClient(
-        OpenAINewsScriptOutput(
+        _script_output(
             hook="巨人打線が一気に爆発です!",
             main_narration=("巨人が新打線で8回に10得点を挙げました。"),
             project_g_comment=("この勢い、次の試合にも持っていってほしい!"),
@@ -90,6 +124,11 @@ def test_generator_returns_structured_script(
     assert result.project_g_comment
     assert result.closing
     assert result.full_narration
+    assert len(result.character_dialogue) == 1
+    assert (
+        result.character_dialogue[0].character
+        is NewsScriptCharacter.JAN
+    )
 
     assert fake_client.responses.kwargs is not None
     assert fake_client.responses.kwargs["model"] == "gpt-5.6-luna"
@@ -100,11 +139,77 @@ def test_generator_returns_structured_script(
     assert fake_client.responses.kwargs["timeout"] == 30
 
 
+def test_generator_returns_multi_character_dialogue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = FakeOpenAIClient(
+        _script_output(
+            hook="同じミスが続いています。",
+            main_narration="巨人の試合で同じミスが続きました。",
+            character_dialogue=[
+                OpenAINewsScriptDialogueLine(
+                    character=NewsScriptCharacter.JAN,
+                    emotion=NewsScriptEmotion.CRITICAL,
+                    intensity=4,
+                    break_character=False,
+                    text="いや、これはさすがに同じミス多すぎるわ。",
+                ),
+                OpenAINewsScriptDialogueLine(
+                    character=NewsScriptCharacter.AN,
+                    emotion=NewsScriptEmotion.SUPPORTIVE,
+                    intensity=3,
+                    break_character=False,
+                    text="でも、良かったところもちゃんとあったよ。",
+                ),
+            ],
+            project_g_comment=(
+                "今回はジャン寄りやな。同じミスが続くのは気になるわ。"
+            ),
+            closing="みんなは今回はジャン派?アン派?",
+        )
+    )
+
+    monkeypatch.setattr(
+        module,
+        "OpenAI",
+        lambda **kwargs: fake_client,
+    )
+
+    generator = OpenAINewsScriptGenerator(
+        api_key="test-key",
+        model="gpt-5.6-luna",
+        timeout_seconds=30,
+    )
+
+    result = generator.generate(_input())
+
+    assert len(result.character_dialogue) == 2
+
+    assert (
+        result.character_dialogue[0].character
+        is NewsScriptCharacter.JAN
+    )
+    assert (
+        result.character_dialogue[0].emotion
+        is NewsScriptEmotion.CRITICAL
+    )
+    assert result.character_dialogue[0].intensity == 4
+
+    assert (
+        result.character_dialogue[1].character
+        is NewsScriptCharacter.AN
+    )
+    assert (
+        result.character_dialogue[1].emotion
+        is NewsScriptEmotion.SUPPORTIVE
+    )
+
+
 def test_generator_sends_only_allowed_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_client = FakeOpenAIClient(
-        OpenAINewsScriptOutput(
+        _script_output(
             hook="Hook",
             main_narration="Main",
             project_g_comment="Comment",
@@ -197,7 +302,7 @@ def test_generator_instructions_define_project_g_kansai_voice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_client = FakeOpenAIClient(
-        OpenAINewsScriptOutput(
+        _script_output(
             hook="巨人ファン注目です。",
             main_narration="巨人に関するニュースです。",
             project_g_comment="これはさすがに結果出してもらわなあかんわ。",
@@ -228,13 +333,160 @@ def test_generator_instructions_define_project_g_kansai_voice(
     assert "do not force negativity" in instructions
     assert "Do not overuse 「〜やで」" in instructions
     assert "「なんでやねん」 or 「知らんけど」" in instructions
+    assert "JAN:" in instructions
+    assert "AN:" in instructions
+    assert "TSUN:" in instructions
+    assert "ECSTATIC" in instructions
+    assert "break_character=true" in instructions
+    assert "Do NOT force disagreement" in instructions
+    assert "react to the immediately" in instructions
+    assert "Project G's OWN short editorial view" in instructions
+
+
+def test_character_prompt_preserves_personality_rules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = FakeOpenAIClient(
+        _script_output(
+            hook="Hook",
+            main_narration="Main",
+            project_g_comment="Comment",
+            closing="Closing",
+        )
+    )
+
+    monkeypatch.setattr(
+        module,
+        "OpenAI",
+        lambda **kwargs: fake_client,
+    )
+
+    generator = OpenAINewsScriptGenerator(
+        api_key="test-key",
+        model="gpt-5.6-luna",
+        timeout_seconds=30,
+    )
+
+    generator.generate(_input())
+
+    assert fake_client.responses.kwargs is not None
+    instructions = fake_client.responses.kwargs["instructions"]
+
+    # Jan: anger and disappointment are intentionally different.
+    assert "CRITICAL means there is a concrete problem" in instructions
+    assert "DISAPPOINTED means the result hurts" in instructions
+    assert "stop the poison rather than becoming" in instructions
+
+    # Jan only loses composure on exceptional Giants joy.
+    assert "one rare special mode" in instructions
+    assert "ECSTATIC with break_character=true" in instructions
+    assert "maximum-level Giants joy" in instructions
+    assert "Do NOT activate break_character for ordinary positive news" in instructions
+    assert "ordinary home run" in instructions
+    assert "ordinary win" in instructions
+
+    # An: supportive, but not blind defense.
+    assert "Do not blindly defend bad performance" in instructions
+    assert "Natural Kansai wording may appear more strongly" in instructions
+
+    # Tsun: shared fan emotion rather than forced analysis.
+    assert "emotional fan voice for excitement" in instructions
+    assert "Tsun does not need to perform deep analysis" in instructions
+
+    # Dialogue is a real exchange, not independent speeches.
+    assert "Do NOT force disagreement" in instructions
+    assert "genuine conversational back-and-forth" in instructions
+
+
+def test_generator_rejects_illegal_break_character_combination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = FakeOpenAIClient(
+        _script_output(
+            hook="Hook",
+            main_narration="Main",
+            character_dialogue=[
+                OpenAINewsScriptDialogueLine(
+                    character=NewsScriptCharacter.AN,
+                    emotion=NewsScriptEmotion.ECSTATIC,
+                    intensity=5,
+                    break_character=True,
+                    text="やったー!",
+                )
+            ],
+            project_g_comment="Comment",
+            closing="Closing",
+        )
+    )
+
+    monkeypatch.setattr(
+        module,
+        "OpenAI",
+        lambda **kwargs: fake_client,
+    )
+
+    generator = OpenAINewsScriptGenerator(
+        api_key="test-key",
+        model="gpt-5.6-luna",
+        timeout_seconds=30,
+    )
+
+    with pytest.raises(
+        InvalidNewsScriptGenerationError,
+        match="break_character is only valid for Jan in ecstatic mode",
+    ):
+        generator.generate(_input())
+
+
+def test_generator_accepts_ecstatic_break_character_for_jan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = FakeOpenAIClient(
+        _script_output(
+            hook="巨人が優勝!",
+            main_narration="巨人が優勝しました。",
+            character_dialogue=[
+                OpenAINewsScriptDialogueLine(
+                    character=NewsScriptCharacter.JAN,
+                    emotion=NewsScriptEmotion.ECSTATIC,
+                    intensity=5,
+                    break_character=True,
+                    text="うおおおお!やったあああ!!",
+                )
+            ],
+            project_g_comment="今日はもう思いっきり喜んでええやろ。",
+            closing="みんな、今どんな気分?",
+        )
+    )
+
+    monkeypatch.setattr(
+        module,
+        "OpenAI",
+        lambda **kwargs: fake_client,
+    )
+
+    generator = OpenAINewsScriptGenerator(
+        api_key="test-key",
+        model="gpt-5.6-luna",
+        timeout_seconds=30,
+    )
+
+    result = generator.generate(_input())
+
+    assert len(result.character_dialogue) == 1
+    line = result.character_dialogue[0]
+
+    assert line.character is NewsScriptCharacter.JAN
+    assert line.emotion is NewsScriptEmotion.ECSTATIC
+    assert line.intensity == 5
+    assert line.break_character is True
 
 
 def test_generator_sends_background_facts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_client = FakeOpenAIClient(
-        OpenAINewsScriptOutput(
+        _script_output(
             hook="Hook",
             main_narration="Main",
             project_g_comment="Comment",
@@ -313,7 +565,7 @@ def test_generator_groups_background_evidence_by_role(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_client = FakeOpenAIClient(
-        OpenAINewsScriptOutput(
+        _script_output(
             hook="Hook",
             main_narration="Main",
             project_g_comment="Comment",
@@ -390,7 +642,7 @@ def test_generator_returns_verified_evidence_without_rewriting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_client = FakeOpenAIClient(
-        OpenAINewsScriptOutput(
+        _script_output(
             hook="Hook",
             main_narration="Main",
             project_g_comment="Comment",
@@ -460,7 +712,7 @@ def test_generator_builds_full_narration_with_project_g_boundary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_client = FakeOpenAIClient(
-        OpenAINewsScriptOutput(
+        _script_output(
             hook="Hook",
             main_narration="Main fact.",
             project_g_comment="Comment.",
@@ -491,7 +743,7 @@ def test_generator_forbids_unsupported_temporal_framing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_client = FakeOpenAIClient(
-        OpenAINewsScriptOutput(
+        _script_output(
             hook="Hook",
             main_narration="Main",
             project_g_comment="Comment",
@@ -519,3 +771,95 @@ def test_generator_forbids_unsupported_temporal_framing(
     assert "unsupported temporal or emotional framing" in instructions
     assert '"finally"' in instructions
     assert "title or description directly supports it" in instructions
+
+
+
+def test_generator_allows_missing_closing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = FakeOpenAIClient(
+        OpenAINewsScriptOutput(
+            hook="巨人が優勝!",
+            main_narration="巨人がリーグ優勝を決めました。",
+            character_dialogue=[
+                OpenAINewsScriptDialogueLine(
+                    character=NewsScriptCharacter.JAN,
+                    emotion=NewsScriptEmotion.ECSTATIC,
+                    intensity=5,
+                    break_character=True,
+                    text="うおおおお!優勝や!",
+                )
+            ],
+            project_g_comment="今日はもう文句なしや。最高や!",
+            closing=None,
+        )
+    )
+
+    monkeypatch.setattr(
+        module,
+        "OpenAI",
+        lambda **kwargs: fake_client,
+    )
+
+    generator = OpenAINewsScriptGenerator(
+        api_key="test-key",
+        model="gpt-5.6-luna",
+        timeout_seconds=30,
+    )
+
+    result = generator.generate(_input())
+
+    assert result.closing is None
+    assert result.full_narration == (
+        "巨人が優勝!\n\n"
+        "巨人がリーグ優勝を決めました。\n\n"
+        "ここからはPROJECT Gの見解です。\n\n"
+        "今日はもう文句なしや。最高や!"
+    )
+
+
+def test_generator_instructions_define_optional_open_ended_closing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = FakeOpenAIClient(
+        OpenAINewsScriptOutput(
+            hook="Hook",
+            main_narration="Main",
+            character_dialogue=[
+                OpenAINewsScriptDialogueLine(
+                    character=NewsScriptCharacter.JAN,
+                    emotion=NewsScriptEmotion.CRITICAL,
+                    intensity=3,
+                    break_character=False,
+                    text="これは修正せなあかんな。",
+                )
+            ],
+            project_g_comment="Comment",
+            closing=None,
+        )
+    )
+
+    monkeypatch.setattr(
+        module,
+        "OpenAI",
+        lambda **kwargs: fake_client,
+    )
+
+    generator = OpenAINewsScriptGenerator(
+        api_key="test-key",
+        model="gpt-5.6-luna",
+        timeout_seconds=30,
+    )
+
+    generator.generate(_input())
+
+    assert fake_client.responses.kwargs is not None
+    instructions = fake_client.responses.kwargs["instructions"]
+
+    assert "closing is OPTIONAL" in instructions
+    assert "OPEN-ENDED decision question" in instructions
+    assert "Do NOT use simple yes/no questions" in instructions
+    assert "Do NOT ask generic emotional questions" in instructions
+    assert "forced binary choice" in instructions
+    assert "keep the answer space open" in instructions
+    assert "If JAN has break_character=true, closing MUST be null" in instructions

@@ -20,6 +20,9 @@ from project_g.domain.news.competition import CompetitionLevel
 from project_g.domain.news.evidence_role import EvidenceRole
 from project_g.domain.news.script_generation import (
     InvalidNewsScriptGenerationError,
+    NewsScriptCharacter,
+    NewsScriptDialogueLine,
+    NewsScriptEmotion,
     NewsScriptEvidenceSnapshot,
     NewsScriptGeneration,
     NewsScriptGenerationStatus,
@@ -41,6 +44,62 @@ def _as_utc_optional(
         return None
 
     return _as_utc(value)
+
+
+def _parse_dialogue_item(
+    item: object,
+) -> NewsScriptDialogueLine:
+    if not isinstance(item, dict):
+        raise InvalidNewsScriptGenerationError(
+            "character_dialogue item is invalid"
+        )
+
+    try:
+        character = item["character"]
+        emotion = item["emotion"]
+        intensity = item["intensity"]
+        break_character = item["break_character"]
+        dialogue_text = item["text"]
+    except KeyError as error:
+        raise InvalidNewsScriptGenerationError(
+            "character_dialogue item is invalid"
+        ) from error
+
+    if (
+        not isinstance(character, str)
+        or not isinstance(emotion, str)
+        or type(intensity) is not int
+        or type(break_character) is not bool
+        or not isinstance(dialogue_text, str)
+    ):
+        raise InvalidNewsScriptGenerationError(
+            "character_dialogue item is invalid"
+        )
+
+    try:
+        return NewsScriptDialogueLine(
+            character=NewsScriptCharacter(character),
+            emotion=NewsScriptEmotion(emotion),
+            intensity=intensity,
+            break_character=break_character,
+            text=dialogue_text,
+        )
+    except ValueError as error:
+        raise InvalidNewsScriptGenerationError(
+            "character_dialogue item is invalid"
+        ) from error
+
+
+def _parse_character_dialogue(
+    value: list[dict[str, object]] | None,
+) -> tuple[NewsScriptDialogueLine, ...] | None:
+    if value is None:
+        return None
+
+    return tuple(
+        _parse_dialogue_item(item)
+        for item in value
+    )
 
 
 class NewsScriptGenerationRecord(Base):
@@ -131,6 +190,12 @@ class NewsScriptGenerationRecord(Base):
         Text,
         nullable=True,
     )
+    character_dialogue: Mapped[
+        list[dict[str, object]] | None
+    ] = mapped_column(
+        JSON,
+        nullable=True,
+    )
     evidence_snapshot: Mapped[list[dict[str, str]] | None] = mapped_column(
         JSON,
         nullable=True,
@@ -159,6 +224,19 @@ class NewsScriptGenerationRecord(Base):
         generation: NewsScriptGeneration,
     ) -> "NewsScriptGenerationRecord":
         evidence = None
+        dialogue = None
+
+        if generation.character_dialogue is not None:
+            dialogue = [
+                {
+                    "character": item.character.value,
+                    "emotion": item.emotion.value,
+                    "intensity": item.intensity,
+                    "break_character": item.break_character,
+                    "text": item.text,
+                }
+                for item in generation.character_dialogue
+            ]
 
         if generation.evidence_snapshot is not None:
             evidence = [
@@ -185,6 +263,7 @@ class NewsScriptGenerationRecord(Base):
             project_g_comment=generation.project_g_comment,
             closing=generation.closing,
             full_narration=generation.full_narration,
+            character_dialogue=dialogue,
             evidence_snapshot=evidence,
             created_at=generation.created_at,
             started_at=generation.started_at,
@@ -226,6 +305,9 @@ class NewsScriptGenerationRecord(Base):
             closing=self.closing,
             full_narration=self.full_narration,
             evidence_snapshot=evidence,
+            character_dialogue=_parse_character_dialogue(
+                self.character_dialogue
+            ),
             created_at=_as_utc(self.created_at),
             started_at=_as_utc_optional(self.started_at),
             completed_at=_as_utc_optional(self.completed_at),

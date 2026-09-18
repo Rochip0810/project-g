@@ -8,6 +8,9 @@ from project_g.domain.news.evidence_role import EvidenceRole
 from project_g.domain.news.script_generation import (
     InvalidNewsScriptGenerationError,
     InvalidNewsScriptGenerationTransitionError,
+    NewsScriptCharacter,
+    NewsScriptDialogueLine,
+    NewsScriptEmotion,
     NewsScriptEvidenceSnapshot,
     NewsScriptGeneration,
     NewsScriptGenerationStatus,
@@ -263,6 +266,21 @@ def test_failure_reason_must_not_be_blank() -> None:
         )
 
 
+def test_generated_script_allows_missing_closing() -> None:
+    generation = _generating().record_generated(
+        hook="hook",
+        main_narration="main",
+        project_g_comment="comment",
+        closing=None,
+        full_narration="full",
+        evidence_snapshot=(),
+        completed_at=_COMPLETED_AT,
+    )
+
+    assert generation.status is NewsScriptGenerationStatus.GENERATED
+    assert generation.closing is None
+
+
 def test_generated_script_allows_empty_evidence_snapshot() -> None:
     generation = _generating().record_generated(
         hook="hook",
@@ -276,3 +294,168 @@ def test_generated_script_allows_empty_evidence_snapshot() -> None:
 
     assert generation.status is NewsScriptGenerationStatus.GENERATED
     assert generation.evidence_snapshot == ()
+
+
+
+def test_dialogue_line_normalizes_text() -> None:
+    line = NewsScriptDialogueLine(
+        character=NewsScriptCharacter.JAN,
+        emotion=NewsScriptEmotion.CRITICAL,
+        intensity=4,
+        break_character=False,
+        text="  いや、これはさすがに同じミス多すぎるわ。  ",
+    )
+
+    assert line.text == "いや、これはさすがに同じミス多すぎるわ。"
+
+
+@pytest.mark.parametrize(
+    "intensity",
+    [0, 6],
+)
+def test_dialogue_intensity_must_be_between_one_and_five(
+    intensity: int,
+) -> None:
+    with pytest.raises(
+        InvalidNewsScriptGenerationError,
+        match="dialogue intensity must be between 1 and 5",
+    ):
+        NewsScriptDialogueLine(
+            character=NewsScriptCharacter.AN,
+            emotion=NewsScriptEmotion.SUPPORTIVE,
+            intensity=intensity,
+            break_character=False,
+            text="まだこれからやで。",
+        )
+
+
+def test_dialogue_text_must_not_be_blank() -> None:
+    with pytest.raises(
+        InvalidNewsScriptGenerationError,
+        match="dialogue text must not be empty",
+    ):
+        NewsScriptDialogueLine(
+            character=NewsScriptCharacter.TSUN,
+            emotion=NewsScriptEmotion.CELEBRATORY,
+            intensity=4,
+            break_character=False,
+            text="   ",
+        )
+
+
+@pytest.mark.parametrize(
+    ("character", "emotion"),
+    [
+        (NewsScriptCharacter.AN, NewsScriptEmotion.ECSTATIC),
+        (NewsScriptCharacter.TSUN, NewsScriptEmotion.ECSTATIC),
+        (NewsScriptCharacter.JAN, NewsScriptEmotion.CELEBRATORY),
+        (NewsScriptCharacter.JAN, NewsScriptEmotion.CRITICAL),
+    ],
+)
+def test_break_character_is_only_valid_for_ecstatic_jan(
+    character: NewsScriptCharacter,
+    emotion: NewsScriptEmotion,
+) -> None:
+    with pytest.raises(
+        InvalidNewsScriptGenerationError,
+        match="break_character is only valid for Jan in ecstatic mode",
+    ):
+        NewsScriptDialogueLine(
+            character=character,
+            emotion=emotion,
+            intensity=5,
+            break_character=True,
+            text="うおおおお!",
+        )
+
+
+def test_ecstatic_jan_can_break_character() -> None:
+    line = NewsScriptDialogueLine(
+        character=NewsScriptCharacter.JAN,
+        emotion=NewsScriptEmotion.ECSTATIC,
+        intensity=5,
+        break_character=True,
+        text="うおおおお!勝ったあああ!!",
+    )
+
+    assert line.character is NewsScriptCharacter.JAN
+    assert line.emotion is NewsScriptEmotion.ECSTATIC
+    assert line.intensity == 5
+    assert line.break_character is True
+
+
+def test_generated_script_can_store_character_dialogue() -> None:
+    dialogue = (
+        NewsScriptDialogueLine(
+            character=NewsScriptCharacter.JAN,
+            emotion=NewsScriptEmotion.CRITICAL,
+            intensity=4,
+            break_character=False,
+            text="いや、これはさすがに同じミス多すぎるわ。",
+        ),
+        NewsScriptDialogueLine(
+            character=NewsScriptCharacter.AN,
+            emotion=NewsScriptEmotion.SUPPORTIVE,
+            intensity=3,
+            break_character=False,
+            text="でも、良かったところもちゃんとあったよ。",
+        ),
+    )
+
+    generation = _generating().record_generated(
+        hook="また同じミス。これは気になります。",
+        main_narration="巨人の試合で同じミスが続きました。",
+        project_g_comment="今回はジャン寄り。繰り返している点は気になる。",
+        closing="みんなはどう思いますか?",
+        full_narration="完成したナレーション全文",
+        evidence_snapshot=(),
+        completed_at=_COMPLETED_AT,
+        character_dialogue=dialogue,
+    )
+
+    assert generation.character_dialogue == dialogue
+
+
+def test_character_dialogue_must_not_be_empty_when_provided() -> None:
+    with pytest.raises(
+        InvalidNewsScriptGenerationError,
+        match="character_dialogue must not be empty when provided",
+    ):
+        _generating().record_generated(
+            hook="hook",
+            main_narration="main",
+            project_g_comment="comment",
+            closing="closing",
+            full_narration="full",
+            evidence_snapshot=(),
+            completed_at=_COMPLETED_AT,
+            character_dialogue=(),
+        )
+
+
+def test_character_dialogue_must_not_exceed_six_lines() -> None:
+    dialogue = tuple(
+        NewsScriptDialogueLine(
+            character=NewsScriptCharacter.JAN,
+            emotion=NewsScriptEmotion.NEUTRAL,
+            intensity=1,
+            break_character=False,
+            text=f"セリフ {index}",
+        )
+        for index in range(7)
+    )
+
+    with pytest.raises(
+        InvalidNewsScriptGenerationError,
+        match="character_dialogue must not contain more than 6 lines",
+    ):
+        _generating().record_generated(
+            hook="hook",
+            main_narration="main",
+            project_g_comment="comment",
+            closing="closing",
+            full_narration="full",
+            evidence_snapshot=(),
+            completed_at=_COMPLETED_AT,
+            character_dialogue=dialogue,
+        )

@@ -84,6 +84,7 @@ class SqlAlchemyNewsScriptGenerationRepository:
         record.project_g_comment = replacement.project_g_comment
         record.closing = replacement.closing
         record.full_narration = replacement.full_narration
+        record.character_dialogue = replacement.character_dialogue
         record.evidence_snapshot = replacement.evidence_snapshot
 
         record.created_at = replacement.created_at
@@ -178,6 +179,7 @@ class SqlAlchemyNewsScriptGenerationRepository:
                 project_g_comment=None,
                 closing=None,
                 full_narration=None,
+                character_dialogue=None,
                 evidence_snapshot=None,
                 started_at=started_at,
                 completed_at=None,

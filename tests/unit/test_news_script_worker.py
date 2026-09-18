@@ -79,6 +79,7 @@ class FakeGenerateNewsScript:
             main_narration=("巨人の則本昂大投手が1軍に合流しました。"),
             project_g_comment=("ファームの内容を見ると、手放しで安心とは言いにくいな。"),
             closing="今後の起用に注目です。",
+            character_dialogue=(),
             full_narration=(
                 "則本が1軍に合流です。\n\n"
                 "巨人の則本昂大投手が"

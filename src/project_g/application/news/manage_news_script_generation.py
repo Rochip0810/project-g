@@ -151,6 +151,9 @@ class ManageNewsScriptGeneration:
             full_narration=result.script.full_narration,
             evidence_snapshot=evidence_snapshot,
             completed_at=self._clock(),
+            character_dialogue=(
+                result.script.character_dialogue or None
+            ),
         )
 
         return self._repository.update(generated)

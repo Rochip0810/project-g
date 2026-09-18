@@ -4,6 +4,7 @@ from uuid import UUID
 
 from project_g.domain.news.competition import CompetitionLevel
 from project_g.domain.news.evidence_role import EvidenceRole
+from project_g.domain.news.script_generation import NewsScriptDialogueLine
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,8 +34,9 @@ class NewsScriptGeneratorResult:
     hook: str
     main_narration: str
     project_g_comment: str
-    closing: str
+    closing: str | None
     full_narration: str
+    character_dialogue: tuple[NewsScriptDialogueLine, ...] = ()
     evidence_points: tuple[NewsScriptBackgroundFact, ...] = ()
 
 
