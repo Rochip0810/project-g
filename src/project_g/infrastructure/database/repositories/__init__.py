@@ -31,6 +31,9 @@ from project_g.infrastructure.database.repositories.news_script_generations impo
 from project_g.infrastructure.database.repositories.news_sources import (
     SqlAlchemyNewsSourceRepository,
 )
+from project_g.infrastructure.database.repositories.news_video_generations import (
+    SqlAlchemyNewsVideoGenerationRepository,
+)
 from project_g.infrastructure.database.repositories.recent_news_context import (
     SqlAlchemyRecentNewsContextRepository,
 )
@@ -47,5 +50,6 @@ __all__ = [
     "SqlAlchemyNewsRelevanceAnalysisRepository",
     "SqlAlchemyNewsScriptGenerationRepository",
     "SqlAlchemyNewsSourceRepository",
+    "SqlAlchemyNewsVideoGenerationRepository",
     "SqlAlchemyRecentNewsContextRepository",
 ]
