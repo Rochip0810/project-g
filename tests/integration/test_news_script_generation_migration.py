@@ -114,7 +114,6 @@ def test_news_script_generation_migration_upgrade_and_downgrade(
     )
 
 
-
 def test_character_dialogue_migration_upgrade_and_downgrade(
     alembic_config: Config,
     database_engine: Engine,
@@ -126,8 +125,7 @@ def test_character_dialogue_migration_upgrade_and_downgrade(
 
     inspector = inspect(database_engine)
     columns = {
-        column["name"]: column
-        for column in inspector.get_columns("news_script_generations")
+        column["name"]: column for column in inspector.get_columns("news_script_generations")
     }
 
     assert "character_dialogue" not in columns
@@ -140,8 +138,7 @@ def test_character_dialogue_migration_upgrade_and_downgrade(
 
     inspector = inspect(database_engine)
     columns = {
-        column["name"]: column
-        for column in inspector.get_columns("news_script_generations")
+        column["name"]: column for column in inspector.get_columns("news_script_generations")
     }
 
     assert "character_dialogue" in columns
@@ -155,8 +152,7 @@ def test_character_dialogue_migration_upgrade_and_downgrade(
 
     inspector = inspect(database_engine)
     columns = {
-        column["name"]: column
-        for column in inspector.get_columns("news_script_generations")
+        column["name"]: column for column in inspector.get_columns("news_script_generations")
     }
 
     assert "character_dialogue" not in columns

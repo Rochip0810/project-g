@@ -296,7 +296,6 @@ def test_generated_script_allows_empty_evidence_snapshot() -> None:
     assert generation.evidence_snapshot == ()
 
 
-
 def test_dialogue_line_normalizes_text() -> None:
     line = NewsScriptDialogueLine(
         character=NewsScriptCharacter.JAN,

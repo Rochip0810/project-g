@@ -97,13 +97,10 @@ class NewsScriptDialogueLine:
         )
 
         if not 1 <= self.intensity <= 5:
-            raise InvalidNewsScriptGenerationError(
-                "dialogue intensity must be between 1 and 5"
-            )
+            raise InvalidNewsScriptGenerationError("dialogue intensity must be between 1 and 5")
 
         if self.break_character and not (
-            self.character is NewsScriptCharacter.JAN
-            and self.emotion is NewsScriptEmotion.ECSTATIC
+            self.character is NewsScriptCharacter.JAN and self.emotion is NewsScriptEmotion.ECSTATIC
         ):
             raise InvalidNewsScriptGenerationError(
                 "break_character is only valid for Jan in ecstatic mode"
@@ -469,15 +466,18 @@ class NewsScriptGeneration:
             )
 
     def _has_script_output(self) -> bool:
-        return any(
-            value is not None
-            for value in (
-                self.hook,
-                self.main_narration,
-                self.project_g_comment,
-                self.full_narration,
+        return (
+            any(
+                value is not None
+                for value in (
+                    self.hook,
+                    self.main_narration,
+                    self.project_g_comment,
+                    self.full_narration,
+                )
             )
-        ) or self.character_dialogue is not None
+            or self.character_dialogue is not None
+        )
 
     def _has_complete_script_output(self) -> bool:
         return all(

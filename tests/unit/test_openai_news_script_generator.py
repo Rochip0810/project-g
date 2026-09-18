@@ -125,10 +125,7 @@ def test_generator_returns_structured_script(
     assert result.closing
     assert result.full_narration
     assert len(result.character_dialogue) == 1
-    assert (
-        result.character_dialogue[0].character
-        is NewsScriptCharacter.JAN
-    )
+    assert result.character_dialogue[0].character is NewsScriptCharacter.JAN
 
     assert fake_client.responses.kwargs is not None
     assert fake_client.responses.kwargs["model"] == "gpt-5.6-luna"
@@ -162,9 +159,7 @@ def test_generator_returns_multi_character_dialogue(
                     text="でも、良かったところもちゃんとあったよ。",
                 ),
             ],
-            project_g_comment=(
-                "今回はジャン寄りやな。同じミスが続くのは気になるわ。"
-            ),
+            project_g_comment=("今回はジャン寄りやな。同じミスが続くのは気になるわ。"),
             closing="みんなは今回はジャン派?アン派?",
         )
     )
@@ -185,24 +180,12 @@ def test_generator_returns_multi_character_dialogue(
 
     assert len(result.character_dialogue) == 2
 
-    assert (
-        result.character_dialogue[0].character
-        is NewsScriptCharacter.JAN
-    )
-    assert (
-        result.character_dialogue[0].emotion
-        is NewsScriptEmotion.CRITICAL
-    )
+    assert result.character_dialogue[0].character is NewsScriptCharacter.JAN
+    assert result.character_dialogue[0].emotion is NewsScriptEmotion.CRITICAL
     assert result.character_dialogue[0].intensity == 4
 
-    assert (
-        result.character_dialogue[1].character
-        is NewsScriptCharacter.AN
-    )
-    assert (
-        result.character_dialogue[1].emotion
-        is NewsScriptEmotion.SUPPORTIVE
-    )
+    assert result.character_dialogue[1].character is NewsScriptCharacter.AN
+    assert result.character_dialogue[1].emotion is NewsScriptEmotion.SUPPORTIVE
 
 
 def test_generator_sends_only_allowed_metadata(
@@ -771,7 +754,6 @@ def test_generator_forbids_unsupported_temporal_framing(
     assert "unsupported temporal or emotional framing" in instructions
     assert '"finally"' in instructions
     assert "title or description directly supports it" in instructions
-
 
 
 def test_generator_allows_missing_closing(

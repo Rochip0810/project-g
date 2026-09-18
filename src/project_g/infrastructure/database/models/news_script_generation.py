@@ -50,9 +50,7 @@ def _parse_dialogue_item(
     item: object,
 ) -> NewsScriptDialogueLine:
     if not isinstance(item, dict):
-        raise InvalidNewsScriptGenerationError(
-            "character_dialogue item is invalid"
-        )
+        raise InvalidNewsScriptGenerationError("character_dialogue item is invalid")
 
     try:
         character = item["character"]
@@ -61,9 +59,7 @@ def _parse_dialogue_item(
         break_character = item["break_character"]
         dialogue_text = item["text"]
     except KeyError as error:
-        raise InvalidNewsScriptGenerationError(
-            "character_dialogue item is invalid"
-        ) from error
+        raise InvalidNewsScriptGenerationError("character_dialogue item is invalid") from error
 
     if (
         not isinstance(character, str)
@@ -72,9 +68,7 @@ def _parse_dialogue_item(
         or type(break_character) is not bool
         or not isinstance(dialogue_text, str)
     ):
-        raise InvalidNewsScriptGenerationError(
-            "character_dialogue item is invalid"
-        )
+        raise InvalidNewsScriptGenerationError("character_dialogue item is invalid")
 
     try:
         return NewsScriptDialogueLine(
@@ -85,9 +79,7 @@ def _parse_dialogue_item(
             text=dialogue_text,
         )
     except ValueError as error:
-        raise InvalidNewsScriptGenerationError(
-            "character_dialogue item is invalid"
-        ) from error
+        raise InvalidNewsScriptGenerationError("character_dialogue item is invalid") from error
 
 
 def _parse_character_dialogue(
@@ -96,10 +88,7 @@ def _parse_character_dialogue(
     if value is None:
         return None
 
-    return tuple(
-        _parse_dialogue_item(item)
-        for item in value
-    )
+    return tuple(_parse_dialogue_item(item) for item in value)
 
 
 class NewsScriptGenerationRecord(Base):
@@ -190,9 +179,7 @@ class NewsScriptGenerationRecord(Base):
         Text,
         nullable=True,
     )
-    character_dialogue: Mapped[
-        list[dict[str, object]] | None
-    ] = mapped_column(
+    character_dialogue: Mapped[list[dict[str, object]] | None] = mapped_column(
         JSON,
         nullable=True,
     )
@@ -305,9 +292,7 @@ class NewsScriptGenerationRecord(Base):
             closing=self.closing,
             full_narration=self.full_narration,
             evidence_snapshot=evidence,
-            character_dialogue=_parse_character_dialogue(
-                self.character_dialogue
-            ),
+            character_dialogue=_parse_character_dialogue(self.character_dialogue),
             created_at=_as_utc(self.created_at),
             started_at=_as_utc_optional(self.started_at),
             completed_at=_as_utc_optional(self.completed_at),
