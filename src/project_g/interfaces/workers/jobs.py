@@ -33,6 +33,9 @@ from project_g.application.news.prepare_news_narration_audio_jobs import (
     PrepareNewsNarrationAudioJobs,
 )
 from project_g.application.news.rank_candidates import RankNewsCandidates
+from project_g.application.news.render_news_video_artifact import (
+    RenderNewsVideoArtifact,
+)
 from project_g.application.news.select_news_script_enqueue_candidates import (
     SelectNewsScriptEnqueueCandidates,
 )
@@ -50,6 +53,9 @@ from project_g.domain.news.relevance_analysis import (
 )
 from project_g.domain.news.script_generation import (
     NewsScriptGenerationStatus,
+)
+from project_g.domain.news.video_generation import (
+    NewsVideoGenerationStatus,
 )
 from project_g.infrastructure.ai.openai_priority import OpenAIPriorityAnalyzer
 from project_g.infrastructure.ai.openai_relevance import OpenAIRelevanceAnalyzer
@@ -87,12 +93,21 @@ from project_g.infrastructure.database.repositories import (
 from project_g.infrastructure.database.repositories.news_ranking_candidates import (
     SqlAlchemyNewsRankingCandidateRepository,
 )
+from project_g.infrastructure.database.repositories.news_video_generations import (
+    SqlAlchemyNewsVideoGenerationRepository,
+)
 from project_g.infrastructure.http import HttpxHttpClient
 from project_g.infrastructure.queue import (
     RQQueueProvider,
     create_redis_connection_pool,
 )
 from project_g.infrastructure.storage import LocalFileAudioStorage
+from project_g.infrastructure.storage.local_video import (
+    LocalFileVideoStorage,
+)
+from project_g.infrastructure.video.ffmpeg import (
+    FFmpegVideoRenderer,
+)
 from project_g.interfaces.management.enrich_news_metadata import (
     enrich_news_metadata,
 )
@@ -1477,5 +1492,269 @@ def process_news_script(
             "evidence_count": len(evidence),
             "evidence": evidence,
         }
+    finally:
+        engine.dispose()
+
+
+def process_news_video(
+    video_generation_id: str,
+    expected_attempt_number: int,
+) -> dict[str, object]:
+    """Generate and durably persist one Project G news video."""
+
+    try:
+        parsed_video_generation_id = UUID(video_generation_id)
+    except ValueError as error:
+        raise ValueError(f"Invalid video generation UUID: {video_generation_id}") from error
+
+    if expected_attempt_number < 1:
+        raise ValueError("expected_attempt_number must be at least 1")
+
+    settings = Settings()
+    engine = create_database_engine(settings)
+
+    factory = sessionmaker(
+        bind=engine,
+        expire_on_commit=False,
+    )
+
+    try:
+        claimed_generation = None
+        source_audio = None
+
+        # -------------------------------------------------
+        # Transaction 1:
+        # Validate persisted input and atomically claim
+        # the exact requested attempt.
+        # -------------------------------------------------
+
+        with factory.begin() as session:
+            video_repository = SqlAlchemyNewsVideoGenerationRepository(session)
+
+            audio_repository = SqlAlchemyNewsNarrationAudioGenerationRepository(session)
+
+            media_repository = SqlAlchemyNewsMediaProductionRepository(session)
+
+            generation = video_repository.get_by_video_generation_id(parsed_video_generation_id)
+
+            if generation is None:
+                raise RuntimeError(f"Video generation was not found: {parsed_video_generation_id}")
+
+            if generation.status is NewsVideoGenerationStatus.GENERATED:
+                return {
+                    "status": "already_generated",
+                    "video_generation_id": str(generation.video_generation_id),
+                    "media_production_id": str(generation.media_production_id),
+                    "storage_key": generation.storage_key,
+                }
+
+            media_production = media_repository.get_by_media_production_id(
+                generation.media_production_id
+            )
+
+            if media_production is None:
+                raise RuntimeError("Video media production was not found")
+
+            if media_production.status is NewsMediaProductionStatus.READY:
+                raise RuntimeError("Ready media production has unfinished video")
+
+            source_audio = audio_repository.get_by_audio_generation_id(
+                generation.source_audio_generation_id
+            )
+
+            if source_audio is None:
+                raise RuntimeError("Source narration audio was not found")
+
+            if source_audio.status is not NewsNarrationAudioStatus.GENERATED:
+                raise RuntimeError("Source narration audio is not generated")
+
+            if source_audio.media_production_id != generation.media_production_id:
+                raise RuntimeError("Source audio belongs to a different media production")
+
+            if source_audio.content_sha256 != generation.source_audio_sha256:
+                raise RuntimeError("Source audio SHA-256 does not match video generation")
+
+            started_at = datetime.now(UTC)
+
+            claimed_generation = video_repository.claim_by_media_production_version(
+                media_production_id=generation.media_production_id,
+                video_version=generation.video_version,
+                started_at=started_at,
+                stale_before=(started_at - timedelta(seconds=settings.rq_job_timeout_seconds)),
+                expected_attempt_number=expected_attempt_number,
+            )
+
+            if claimed_generation is not None:
+                if claimed_generation.video_generation_id != parsed_video_generation_id:
+                    raise RuntimeError(
+                        "Claimed video generation does not match the requested generation"
+                    )
+
+                claimed_at = claimed_generation.started_at
+
+                if claimed_at is None:
+                    raise RuntimeError("Claimed video generation has no started_at")
+
+                if media_production.status in {
+                    NewsMediaProductionStatus.PENDING,
+                    NewsMediaProductionStatus.FAILED,
+                }:
+                    media_repository.update(
+                        media_production.start(
+                            started_at=claimed_at,
+                        )
+                    )
+
+                elif media_production.status is not NewsMediaProductionStatus.PROCESSING:
+                    raise RuntimeError("Media production is not eligible for video processing")
+
+        # -------------------------------------------------
+        # The claim transaction has committed.
+        # No DB transaction is held during audio reads,
+        # FFmpeg rendering, or filesystem writes.
+        # -------------------------------------------------
+
+        if claimed_generation is None:
+            return {
+                "status": "not_claimed",
+                "video_generation_id": str(parsed_video_generation_id),
+                "expected_attempt_number": expected_attempt_number,
+            }
+
+        assert source_audio is not None
+
+        # -------------------------------------------------
+        # Render and persist MP4
+        # -------------------------------------------------
+
+        try:
+            rendering_service = RenderNewsVideoArtifact(
+                audio_storage=LocalFileAudioStorage(
+                    root_directory=settings.media_storage_root,
+                ),
+                video_storage=LocalFileVideoStorage(
+                    root_directory=settings.media_storage_root,
+                ),
+                renderer=FFmpegVideoRenderer(),
+            )
+
+            artifact = rendering_service.execute(
+                generation=claimed_generation,
+                source_audio=source_audio,
+                expected_attempt_number=expected_attempt_number,
+            )
+
+        except Exception as error:
+            # ---------------------------------------------
+            # Transaction 2a:
+            # Persist failure only if this attempt
+            # still owns the generation.
+            # ---------------------------------------------
+
+            failed_at = datetime.now(UTC)
+
+            failure_reason = f"{type(error).__name__}: news video artifact generation failed"
+
+            with factory.begin() as session:
+                video_repository = SqlAlchemyNewsVideoGenerationRepository(session)
+
+                media_repository = SqlAlchemyNewsMediaProductionRepository(session)
+
+                failed = video_repository.mark_failed_if_current(
+                    video_generation_id=parsed_video_generation_id,
+                    expected_attempt_number=expected_attempt_number,
+                    reason=failure_reason,
+                    completed_at=failed_at,
+                )
+
+                if failed is not None:
+                    media_production = media_repository.get_by_media_production_id(
+                        failed.media_production_id
+                    )
+
+                    if media_production is None:
+                        raise RuntimeError(
+                            "Media production disappeared while recording video failure"
+                        ) from error
+
+                    if media_production.status is NewsMediaProductionStatus.PROCESSING:
+                        media_repository.update(
+                            media_production.mark_failed(
+                                reason=failure_reason,
+                                completed_at=failed_at,
+                            )
+                        )
+
+            if failed is None:
+                return {
+                    "status": "superseded",
+                    "video_generation_id": str(parsed_video_generation_id),
+                    "expected_attempt_number": expected_attempt_number,
+                }
+
+            return {
+                "status": "failed",
+                "video_generation_id": str(parsed_video_generation_id),
+                "expected_attempt_number": expected_attempt_number,
+                "failure_type": type(error).__name__,
+            }
+
+        # -------------------------------------------------
+        # Transaction 2b:
+        # Persist GENERATED and mark the parent READY
+        # in the same transaction.
+        # -------------------------------------------------
+
+        completed_at = datetime.now(UTC)
+
+        with factory.begin() as session:
+            video_repository = SqlAlchemyNewsVideoGenerationRepository(session)
+
+            media_repository = SqlAlchemyNewsMediaProductionRepository(session)
+
+            generated = video_repository.record_generated_if_current(
+                video_generation_id=parsed_video_generation_id,
+                expected_attempt_number=expected_attempt_number,
+                storage_key=artifact.storage_key,
+                byte_size=artifact.byte_size,
+                content_sha256=artifact.content_sha256,
+                duration_ms=artifact.duration_ms,
+                completed_at=completed_at,
+            )
+
+            if generated is None:
+                return {
+                    "status": "superseded",
+                    "video_generation_id": str(parsed_video_generation_id),
+                    "expected_attempt_number": expected_attempt_number,
+                }
+
+            media_production = media_repository.get_by_media_production_id(
+                generated.media_production_id
+            )
+
+            if media_production is None:
+                raise RuntimeError("Media production disappeared while recording video success")
+
+            if media_production.status is not NewsMediaProductionStatus.PROCESSING:
+                raise RuntimeError("Media production must be processing before becoming ready")
+
+            media_repository.update(
+                media_production.mark_ready(
+                    completed_at=completed_at,
+                )
+            )
+
+        return {
+            "status": "generated",
+            "video_generation_id": str(generated.video_generation_id),
+            "media_production_id": str(generated.media_production_id),
+            "storage_key": generated.storage_key,
+            "byte_size": generated.byte_size,
+            "content_sha256": generated.content_sha256,
+            "duration_ms": generated.duration_ms,
+            "expected_attempt_number": expected_attempt_number,
+        }
+
     finally:
         engine.dispose()
