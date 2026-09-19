@@ -139,6 +139,64 @@ class FakeGenerationRepository:
         self.generation = generation
         return generation
 
+    def record_generated_if_current(
+        self,
+        *,
+        video_generation_id: UUID,
+        expected_attempt_number: int,
+        storage_key: str,
+        byte_size: int,
+        content_sha256: str,
+        duration_ms: int,
+        completed_at: datetime,
+    ) -> NewsVideoGeneration | None:
+        current = self.get_by_video_generation_id(video_generation_id)
+
+        if current is None:
+            return None
+
+        if (
+            current.status is not NewsVideoGenerationStatus.GENERATING
+            or current.attempt_count != expected_attempt_number
+        ):
+            return None
+
+        generated = current.record_generated(
+            storage_key=storage_key,
+            byte_size=byte_size,
+            content_sha256=content_sha256,
+            duration_ms=duration_ms,
+            completed_at=completed_at,
+        )
+
+        return self.update(generated)
+
+    def mark_failed_if_current(
+        self,
+        *,
+        video_generation_id: UUID,
+        expected_attempt_number: int,
+        reason: str,
+        completed_at: datetime,
+    ) -> NewsVideoGeneration | None:
+        current = self.get_by_video_generation_id(video_generation_id)
+
+        if current is None:
+            return None
+
+        if (
+            current.status is not NewsVideoGenerationStatus.GENERATING
+            or current.attempt_count != expected_attempt_number
+        ):
+            return None
+
+        failed = current.mark_failed(
+            reason=reason,
+            completed_at=completed_at,
+        )
+
+        return self.update(failed)
+
     def get_by_video_generation_id(
         self,
         video_generation_id: UUID,
@@ -173,6 +231,7 @@ class FakeGenerationRepository:
         video_version: int,
         started_at: datetime,
         stale_before: datetime | None = None,
+        expected_attempt_number: int | None = None,
     ) -> NewsVideoGeneration | None:
         return None
 

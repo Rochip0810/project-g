@@ -99,6 +99,135 @@ class SqlAlchemyNewsVideoGenerationRepository:
 
         return record.to_domain()
 
+    def record_generated_if_current(
+        self,
+        *,
+        video_generation_id: UUID,
+        expected_attempt_number: int,
+        storage_key: str,
+        byte_size: int,
+        content_sha256: str,
+        duration_ms: int,
+        completed_at: datetime,
+    ) -> NewsVideoGeneration | None:
+        if expected_attempt_number < 1:
+            raise InvalidNewsVideoGenerationError("expected_attempt_number must be at least 1")
+
+        current = self.get_by_video_generation_id(video_generation_id)
+
+        if current is None:
+            return None
+
+        if (
+            current.status is not NewsVideoGenerationStatus.GENERATING
+            or current.attempt_count != expected_attempt_number
+        ):
+            return None
+
+        # Validate output metadata and the completion timestamp
+        # using the existing domain transition.
+        generated = current.record_generated(
+            storage_key=storage_key,
+            byte_size=byte_size,
+            content_sha256=content_sha256,
+            duration_ms=duration_ms,
+            completed_at=completed_at,
+        )
+
+        # The SQL predicate is the authoritative ownership check.
+        # Another worker may have reclaimed this generation after
+        # the domain object above was read.
+        statement = (
+            update(NewsVideoGenerationRecord)
+            .where(
+                NewsVideoGenerationRecord.video_generation_id == video_generation_id,
+                NewsVideoGenerationRecord.status == NewsVideoGenerationStatus.GENERATING.value,
+                NewsVideoGenerationRecord.attempt_count == expected_attempt_number,
+            )
+            .values(
+                status=NewsVideoGenerationStatus.GENERATED.value,
+                storage_key=generated.storage_key,
+                byte_size=generated.byte_size,
+                content_sha256=generated.content_sha256,
+                duration_ms=generated.duration_ms,
+                failure_reason=None,
+                completed_at=generated.completed_at,
+                updated_at=generated.updated_at,
+            )
+            .returning(NewsVideoGenerationRecord)
+            .execution_options(populate_existing=True)
+        )
+
+        record = self._session.scalar(statement)
+
+        if record is None:
+            return None
+
+        self._session.flush()
+
+        return record.to_domain()
+
+    def mark_failed_if_current(
+        self,
+        *,
+        video_generation_id: UUID,
+        expected_attempt_number: int,
+        reason: str,
+        completed_at: datetime,
+    ) -> NewsVideoGeneration | None:
+        if expected_attempt_number < 1:
+            raise InvalidNewsVideoGenerationError("expected_attempt_number must be at least 1")
+
+        current = self.get_by_video_generation_id(video_generation_id)
+
+        if current is None:
+            return None
+
+        if (
+            current.status is not NewsVideoGenerationStatus.GENERATING
+            or current.attempt_count != expected_attempt_number
+        ):
+            return None
+
+        # Validate the failure reason and completion timestamp
+        # using the existing domain transition.
+        failed = current.mark_failed(
+            reason=reason,
+            completed_at=completed_at,
+        )
+
+        # Only the worker that still owns this attempt
+        # may persist the failure.
+        statement = (
+            update(NewsVideoGenerationRecord)
+            .where(
+                NewsVideoGenerationRecord.video_generation_id == video_generation_id,
+                NewsVideoGenerationRecord.status == NewsVideoGenerationStatus.GENERATING.value,
+                NewsVideoGenerationRecord.attempt_count == expected_attempt_number,
+            )
+            .values(
+                status=NewsVideoGenerationStatus.FAILED.value,
+                storage_key=None,
+                byte_size=None,
+                content_sha256=None,
+                duration_ms=None,
+                failure_reason=failed.failure_reason,
+                completed_at=failed.completed_at,
+                updated_at=failed.updated_at,
+            )
+            .returning(NewsVideoGenerationRecord)
+            .execution_options(populate_existing=True)
+        )
+
+        record = self._session.scalar(statement)
+
+        if record is None:
+            return None
+
+        self._session.flush()
+
+        return record.to_domain()
+
     def get_by_video_generation_id(
         self,
         video_generation_id: UUID,
@@ -138,6 +267,7 @@ class SqlAlchemyNewsVideoGenerationRepository:
         video_version: int,
         started_at: datetime,
         stale_before: datetime | None = None,
+        expected_attempt_number: int | None = None,
     ) -> NewsVideoGeneration | None:
         if started_at.tzinfo is None or started_at.utcoffset() is None:
             raise InvalidNewsVideoGenerationError("started_at must be timezone-aware")
@@ -146,6 +276,9 @@ class SqlAlchemyNewsVideoGenerationRepository:
             stale_before.tzinfo is None or stale_before.utcoffset() is None
         ):
             raise InvalidNewsVideoGenerationError("stale_before must be timezone-aware")
+
+        if expected_attempt_number is not None and expected_attempt_number < 1:
+            raise InvalidNewsVideoGenerationError("expected_attempt_number must be at least 1")
 
         claimable_status: ColumnElement[bool] = NewsVideoGenerationRecord.status.in_(
             (
@@ -162,6 +295,12 @@ class SqlAlchemyNewsVideoGenerationRepository:
                     NewsVideoGenerationRecord.started_at.is_not(None),
                     NewsVideoGenerationRecord.started_at <= stale_before,
                 ),
+            )
+
+        if expected_attempt_number is not None:
+            claimable_status = and_(
+                claimable_status,
+                NewsVideoGenerationRecord.attempt_count == expected_attempt_number - 1,
             )
 
         statement = (

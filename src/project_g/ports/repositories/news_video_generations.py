@@ -46,6 +46,31 @@ class NewsVideoGenerationRepository(Protocol):
         generation: NewsVideoGeneration,
     ) -> NewsVideoGeneration: ...
 
+    def record_generated_if_current(
+        self,
+        *,
+        video_generation_id: UUID,
+        expected_attempt_number: int,
+        storage_key: str,
+        byte_size: int,
+        content_sha256: str,
+        duration_ms: int,
+        completed_at: datetime,
+    ) -> NewsVideoGeneration | None:
+        """Complete only the currently owned generating attempt."""
+        ...
+
+    def mark_failed_if_current(
+        self,
+        *,
+        video_generation_id: UUID,
+        expected_attempt_number: int,
+        reason: str,
+        completed_at: datetime,
+    ) -> NewsVideoGeneration | None:
+        """Fail only the currently owned generating attempt."""
+        ...
+
     def get_by_video_generation_id(
         self,
         video_generation_id: UUID,
@@ -65,4 +90,5 @@ class NewsVideoGenerationRepository(Protocol):
         video_version: int,
         started_at: datetime,
         stale_before: datetime | None = None,
+        expected_attempt_number: int | None = None,
     ) -> NewsVideoGeneration | None: ...
