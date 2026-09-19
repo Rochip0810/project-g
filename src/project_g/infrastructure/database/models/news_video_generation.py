@@ -48,6 +48,12 @@ class NewsVideoGenerationRecord(Base):
             name="fk_news_video_generations_media_production_id",
             ondelete="CASCADE",
         ),
+        ForeignKeyConstraint(
+            ["source_audio_generation_id"],
+            ["news_narration_audio_generations.audio_generation_id"],
+            name="fk_news_video_generations_source_audio_generation_id",
+            ondelete="CASCADE",
+        ),
         UniqueConstraint(
             "media_production_id",
             "video_version",
@@ -130,6 +136,10 @@ class NewsVideoGenerationRecord(Base):
         Integer,
         nullable=False,
     )
+    source_audio_generation_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        nullable=False,
+    )
     source_audio_sha256: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
@@ -192,6 +202,7 @@ class NewsVideoGenerationRecord(Base):
             width=generation.width,
             height=generation.height,
             fps=generation.fps,
+            source_audio_generation_id=generation.source_audio_generation_id,
             source_audio_sha256=generation.source_audio_sha256,
             attempt_count=generation.attempt_count,
             storage_key=generation.storage_key,
@@ -216,6 +227,7 @@ class NewsVideoGenerationRecord(Base):
             width=self.width,
             height=self.height,
             fps=self.fps,
+            source_audio_generation_id=self.source_audio_generation_id,
             source_audio_sha256=self.source_audio_sha256,
             attempt_count=self.attempt_count,
             storage_key=self.storage_key,

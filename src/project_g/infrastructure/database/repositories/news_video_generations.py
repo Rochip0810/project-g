@@ -80,6 +80,7 @@ class SqlAlchemyNewsVideoGenerationRepository:
         record.width = replacement.width
         record.height = replacement.height
         record.fps = replacement.fps
+        record.source_audio_generation_id = replacement.source_audio_generation_id
         record.source_audio_sha256 = replacement.source_audio_sha256
 
         record.attempt_count = replacement.attempt_count

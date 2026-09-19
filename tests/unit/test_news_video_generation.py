@@ -17,6 +17,7 @@ _COMPLETED_AT = _CREATED_AT + timedelta(minutes=2)
 
 _VIDEO_ID = UUID("bc70aa8a-a22d-4ea8-8df1-2db80d28e001")
 _MEDIA_ID = UUID("bc70aa8a-a22d-4ea8-8df1-2db80d28e002")
+_SOURCE_AUDIO_ID = UUID("bc70aa8a-a22d-4ea8-8df1-2db80d28e003")
 
 _SOURCE_AUDIO_SHA256 = "a" * 64
 _CONTENT_SHA256 = "b" * 64
@@ -32,6 +33,7 @@ def _pending() -> NewsVideoGeneration:
         width=1080,
         height=1920,
         fps=30,
+        source_audio_generation_id=_SOURCE_AUDIO_ID,
         source_audio_sha256=_SOURCE_AUDIO_SHA256.upper(),
         created_at=_CREATED_AT,
     )
@@ -57,6 +59,7 @@ def test_pending_normalizes_configuration() -> None:
     assert generation.status is NewsVideoGenerationStatus.PENDING
     assert generation.renderer == "ffmpeg"
     assert generation.video_format == "mp4"
+    assert generation.source_audio_generation_id == _SOURCE_AUDIO_ID
     assert generation.source_audio_sha256 == _SOURCE_AUDIO_SHA256
     assert generation.width == 1080
     assert generation.height == 1920

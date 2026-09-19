@@ -58,6 +58,11 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column(
+            "source_audio_generation_id",
+            sa.Uuid(),
+            nullable=False,
+        ),
+        sa.Column(
             "source_audio_sha256",
             sa.String(length=64),
             nullable=False,
@@ -148,6 +153,12 @@ def upgrade() -> None:
             ["media_production_id"],
             ["news_media_productions.media_production_id"],
             name="fk_news_video_generations_media_production_id",
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["source_audio_generation_id"],
+            ["news_narration_audio_generations.audio_generation_id"],
+            name="fk_news_video_generations_source_audio_generation_id",
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint(

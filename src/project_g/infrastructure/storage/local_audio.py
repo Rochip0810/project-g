@@ -45,6 +45,25 @@ class LocalFileAudioStorage(AudioStorage):
             content_sha256=hashlib.sha256(data).hexdigest(),
         )
 
+    def read(
+        self,
+        *,
+        storage_key: str,
+    ) -> bytes | None:
+        target = self._target_for_key(storage_key)
+
+        if not target.is_file():
+            return None
+
+        data = target.read_bytes()
+
+        if not data:
+            raise AudioStorageConflictError(
+                f"Audio storage key contains empty content: {storage_key}"
+            )
+
+        return data
+
     def write(
         self,
         *,

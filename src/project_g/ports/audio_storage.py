@@ -22,6 +22,14 @@ class AudioStorage(Protocol):
         """Return metadata for an existing durable artifact."""
         ...
 
+    def read(
+        self,
+        *,
+        storage_key: str,
+    ) -> bytes | None:
+        """Return durable audio bytes when the artifact exists."""
+        ...
+
     def write(
         self,
         *,

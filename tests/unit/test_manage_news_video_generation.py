@@ -18,6 +18,7 @@ from project_g.ports.repositories.news_video_generations import (
 
 _MEDIA_ID = UUID("4c6c0652-d54b-4ddb-b16e-9e431ec90101")
 _VIDEO_ID = UUID("4c6c0652-d54b-4ddb-b16e-9e431ec90201")
+_SOURCE_AUDIO_ID = UUID("4c6c0652-d54b-4ddb-b16e-9e431ec90301")
 
 _NOW = datetime(
     2026,
@@ -161,6 +162,7 @@ def _prepare(
         width=1080,
         height=1920,
         fps=30,
+        source_audio_generation_id=_SOURCE_AUDIO_ID,
         source_audio_sha256=_SOURCE_HASH,
     )
 
@@ -206,6 +208,7 @@ def test_prepare_normalizes_equivalent_configuration() -> None:
         width=1080,
         height=1920,
         fps=30,
+        source_audio_generation_id=_SOURCE_AUDIO_ID,
         source_audio_sha256=_SOURCE_HASH.upper(),
     )
 
@@ -230,6 +233,7 @@ def test_prepare_rejects_configuration_mismatch() -> None:
             width=720,
             height=1280,
             fps=30,
+            source_audio_generation_id=_SOURCE_AUDIO_ID,
             source_audio_sha256=_SOURCE_HASH,
         )
 

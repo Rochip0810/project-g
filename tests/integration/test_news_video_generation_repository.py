@@ -18,6 +18,9 @@ from project_g.domain.news.competition import CompetitionLevel
 from project_g.domain.news.evidence_role import EvidenceRole
 from project_g.domain.news.manual_intake import ManualNewsIntake
 from project_g.domain.news.media_production import NewsMediaProduction
+from project_g.domain.news.narration_audio import (
+    NewsNarrationAudioGeneration,
+)
 from project_g.domain.news.script_generation import (
     NewsScriptEvidenceSnapshot,
     NewsScriptGeneration,
@@ -32,6 +35,7 @@ from project_g.infrastructure.database.models import (
 from project_g.infrastructure.database.repositories import (
     SqlAlchemyManualNewsIntakeRepository,
     SqlAlchemyNewsMediaProductionRepository,
+    SqlAlchemyNewsNarrationAudioGenerationRepository,
     SqlAlchemyNewsScriptGenerationRepository,
     SqlAlchemyNewsSourceRepository,
     SqlAlchemyNewsVideoGenerationRepository,
@@ -43,6 +47,8 @@ from project_g.ports.repositories.news_video_generations import (
 
 _SCRIPT_GENERATION_ID = UUID("5af3ad8c-77ef-40c8-8a28-a95f5ba00101")
 _MEDIA_PRODUCTION_ID = UUID("5af3ad8c-77ef-40c8-8a28-a95f5ba00201")
+_AUDIO_GENERATION_ID = UUID("5af3ad8c-77ef-40c8-8a28-a95f5ba00202")
+
 _VIDEO_GENERATION_1_ID = UUID("5af3ad8c-77ef-40c8-8a28-a95f5ba00301")
 _VIDEO_GENERATION_2_ID = UUID("5af3ad8c-77ef-40c8-8a28-a95f5ba00302")
 _INTAKE_ID = UUID("5af3ad8c-77ef-40c8-8a28-a95f5ba00401")
@@ -57,6 +63,7 @@ _BASE_TIME = datetime(
 )
 
 _SOURCE_AUDIO_HASH = "a" * 64
+_SOURCE_TEXT_HASH = "c" * 64
 _CONTENT_HASH = "b" * 64
 
 
@@ -146,6 +153,33 @@ def _pending_media() -> NewsMediaProduction:
     )
 
 
+def _generated_audio() -> NewsNarrationAudioGeneration:
+    generated_at = _BASE_TIME + timedelta(minutes=4)
+
+    return (
+        NewsNarrationAudioGeneration.pending(
+            audio_generation_id=_AUDIO_GENERATION_ID,
+            media_production_id=_MEDIA_PRODUCTION_ID,
+            audio_version=1,
+            provider="openai",
+            model="gpt-4o-mini-tts",
+            voice="marin",
+            audio_format="mp3",
+            source_text_sha256=_SOURCE_TEXT_HASH,
+            created_at=generated_at,
+        )
+        .start(
+            started_at=generated_at,
+        )
+        .record_generated(
+            storage_key=f"media/audio/{_MEDIA_PRODUCTION_ID}/v1.mp3",
+            byte_size=12345,
+            content_sha256=_SOURCE_AUDIO_HASH,
+            completed_at=generated_at,
+        )
+    )
+
+
 def _pending_video(
     *,
     video_generation_id: UUID = _VIDEO_GENERATION_1_ID,
@@ -160,6 +194,7 @@ def _pending_video(
         width=1080,
         height=1920,
         fps=30,
+        source_audio_generation_id=_AUDIO_GENERATION_ID,
         source_audio_sha256=_SOURCE_AUDIO_HASH,
         created_at=_BASE_TIME + timedelta(minutes=4),
     )
@@ -172,6 +207,7 @@ def _seed_media(
     SqlAlchemyManualNewsIntakeRepository(session).add(_intake())
     SqlAlchemyNewsScriptGenerationRepository(session).add(_generated_script())
     SqlAlchemyNewsMediaProductionRepository(session).add(_pending_media())
+    SqlAlchemyNewsNarrationAudioGenerationRepository(session).add(_generated_audio())
 
 
 def test_repository_adds_and_retrieves_video_generation(

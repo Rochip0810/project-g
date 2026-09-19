@@ -38,6 +38,7 @@ class ManageNewsVideoGeneration:
         width: int,
         height: int,
         fps: int,
+        source_audio_generation_id: UUID,
         source_audio_sha256: str,
     ) -> NewsVideoGeneration:
         existing = self._repository.get_by_media_production_version(
@@ -53,6 +54,7 @@ class ManageNewsVideoGeneration:
                 width=width,
                 height=height,
                 fps=fps,
+                source_audio_generation_id=source_audio_generation_id,
                 source_audio_sha256=source_audio_sha256,
             )
             return existing
@@ -66,6 +68,7 @@ class ManageNewsVideoGeneration:
             width=width,
             height=height,
             fps=fps,
+            source_audio_generation_id=source_audio_generation_id,
             source_audio_sha256=source_audio_sha256,
             created_at=self._clock(),
         )
@@ -88,6 +91,7 @@ class ManageNewsVideoGeneration:
                 width=width,
                 height=height,
                 fps=fps,
+                source_audio_generation_id=source_audio_generation_id,
                 source_audio_sha256=source_audio_sha256,
             )
 
@@ -169,6 +173,7 @@ class ManageNewsVideoGeneration:
         width: int,
         height: int,
         fps: int,
+        source_audio_generation_id: UUID,
         source_audio_sha256: str,
     ) -> None:
         requested = (
@@ -177,6 +182,7 @@ class ManageNewsVideoGeneration:
             width,
             height,
             fps,
+            source_audio_generation_id,
             source_audio_sha256.strip().lower(),
         )
         persisted = (
@@ -185,6 +191,7 @@ class ManageNewsVideoGeneration:
             generation.width,
             generation.height,
             generation.fps,
+            generation.source_audio_generation_id,
             generation.source_audio_sha256,
         )
 

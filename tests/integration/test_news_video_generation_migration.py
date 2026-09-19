@@ -44,6 +44,7 @@ def test_news_video_generation_migration_upgrade_and_downgrade(
         "width",
         "height",
         "fps",
+        "source_audio_generation_id",
         "source_audio_sha256",
         "attempt_count",
         "storage_key",
@@ -67,6 +68,7 @@ def test_news_video_generation_migration_upgrade_and_downgrade(
         "width",
         "height",
         "fps",
+        "source_audio_generation_id",
         "source_audio_sha256",
         "attempt_count",
         "created_at",
@@ -97,13 +99,24 @@ def test_news_video_generation_migration_upgrade_and_downgrade(
         "video_version",
     ]
 
-    foreign_keys = inspector.get_foreign_keys("news_video_generations")
+    foreign_keys = {fk["name"]: fk for fk in inspector.get_foreign_keys("news_video_generations")}
 
-    assert len(foreign_keys) == 1
-    assert foreign_keys[0]["name"] == ("fk_news_video_generations_media_production_id")
-    assert foreign_keys[0]["referred_table"] == ("news_media_productions")
-    assert foreign_keys[0]["constrained_columns"] == ["media_production_id"]
-    assert foreign_keys[0]["options"].get("ondelete") == "CASCADE"
+    assert set(foreign_keys) == {
+        "fk_news_video_generations_media_production_id",
+        "fk_news_video_generations_source_audio_generation_id",
+    }
+
+    media_fk = foreign_keys["fk_news_video_generations_media_production_id"]
+
+    assert media_fk["referred_table"] == "news_media_productions"
+    assert media_fk["constrained_columns"] == ["media_production_id"]
+    assert media_fk["options"].get("ondelete") == "CASCADE"
+
+    audio_fk = foreign_keys["fk_news_video_generations_source_audio_generation_id"]
+
+    assert audio_fk["referred_table"] == ("news_narration_audio_generations")
+    assert audio_fk["constrained_columns"] == ["source_audio_generation_id"]
+    assert audio_fk["options"].get("ondelete") == "CASCADE"
 
     index_names = {index["name"] for index in inspector.get_indexes("news_video_generations")}
 

@@ -93,6 +93,7 @@ class NewsVideoGeneration:
     width: int
     height: int
     fps: int
+    source_audio_generation_id: UUID
     source_audio_sha256: str
 
     attempt_count: int
@@ -119,6 +120,7 @@ class NewsVideoGeneration:
         width: int,
         height: int,
         fps: int,
+        source_audio_generation_id: UUID,
         source_audio_sha256: str,
         created_at: datetime,
     ) -> "NewsVideoGeneration":
@@ -132,6 +134,7 @@ class NewsVideoGeneration:
             width=width,
             height=height,
             fps=fps,
+            source_audio_generation_id=source_audio_generation_id,
             source_audio_sha256=source_audio_sha256,
             attempt_count=0,
             storage_key=None,
