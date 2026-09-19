@@ -83,7 +83,7 @@ def test_enqueue_uses_correct_worker_and_arguments() -> None:
         (
             QueueName.DEFAULT,
             "project_g.interfaces.workers.jobs.process_news_video",
-            (str(_VIDEO_ID),),
+            (str(_VIDEO_ID), 1),
             None,
             f"news-video-{_VIDEO_ID}-a1",
             "Generate Project G news video",
@@ -130,8 +130,8 @@ def test_retry_uses_new_job_id_and_same_generation_id() -> None:
     assert queue.calls[0][4] == f"news-video-{_VIDEO_ID}-a1"
     assert queue.calls[1][4] == f"news-video-{_VIDEO_ID}-a2"
 
-    assert queue.calls[0][2] == (str(_VIDEO_ID),)
-    assert queue.calls[1][2] == (str(_VIDEO_ID),)
+    assert queue.calls[0][2] == (str(_VIDEO_ID), 1)
+    assert queue.calls[1][2] == (str(_VIDEO_ID), 2)
 
 
 def test_enqueue_rejects_invalid_video_version() -> None:

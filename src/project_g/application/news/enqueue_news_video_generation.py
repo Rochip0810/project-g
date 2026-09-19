@@ -47,7 +47,10 @@ class EnqueueNewsVideoGeneration:
         return self._queue_provider.enqueue(
             QueueName.DEFAULT,
             ("project_g.interfaces.workers.jobs.process_news_video"),
-            args=(str(job.video_generation_id),),
+            args=(
+                str(job.video_generation_id),
+                job.next_attempt_number,
+            ),
             job_id=job_id,
             description="Generate Project G news video",
         )
