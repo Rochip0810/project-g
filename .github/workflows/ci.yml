@@ -242,7 +242,7 @@ jobs:
           )"
 
           echo "Alembic revision: ${normalized_revision}"
-          test "${normalized_revision}" = "0011_character_dialogue"
+          test "${normalized_revision}" = "0012_video_generation"
 
       - name: Run Docker smoke tests
         run: ./scripts/test-docker.sh

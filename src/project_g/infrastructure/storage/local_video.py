@@ -3,14 +3,14 @@ import os
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
-from project_g.ports.audio_storage import (
-    AudioStorage,
-    AudioStorageConflictError,
-    StoredAudioArtifact,
+from project_g.ports.video_storage import (
+    StoredVideoArtifact,
+    VideoStorage,
+    VideoStorageConflictError,
 )
 
 
-class LocalFileAudioStorage(AudioStorage):
+class LocalFileVideoStorage(VideoStorage):
     def __init__(
         self,
         *,
@@ -26,7 +26,7 @@ class LocalFileAudioStorage(AudioStorage):
         self,
         *,
         storage_key: str,
-    ) -> StoredAudioArtifact | None:
+    ) -> StoredVideoArtifact | None:
         target = self._target_for_key(storage_key)
 
         if not target.is_file():
@@ -35,43 +35,24 @@ class LocalFileAudioStorage(AudioStorage):
         data = target.read_bytes()
 
         if not data:
-            raise AudioStorageConflictError(
-                f"Audio storage key contains empty content: {storage_key}"
+            raise VideoStorageConflictError(
+                f"Video storage key contains empty content: {storage_key}"
             )
 
-        return StoredAudioArtifact(
+        return StoredVideoArtifact(
             storage_key=storage_key,
             byte_size=len(data),
             content_sha256=hashlib.sha256(data).hexdigest(),
         )
-
-    def read(
-        self,
-        *,
-        storage_key: str,
-    ) -> bytes | None:
-        target = self._target_for_key(storage_key)
-
-        if not target.is_file():
-            return None
-
-        data = target.read_bytes()
-
-        if not data:
-            raise AudioStorageConflictError(
-                f"Audio storage key contains empty content: {storage_key}"
-            )
-
-        return data
 
     def write(
         self,
         *,
         storage_key: str,
         data: bytes,
-    ) -> StoredAudioArtifact:
+    ) -> StoredVideoArtifact:
         if not data:
-            raise ValueError("Audio data must not be empty")
+            raise ValueError("Video data must not be empty")
 
         target = self._target_for_key(storage_key)
         target.parent.mkdir(
@@ -99,8 +80,6 @@ class LocalFileAudioStorage(AudioStorage):
                 os.fsync(handle.fileno())
 
             try:
-                # Hard-linking is atomic and never overwrites
-                # an existing canonical artifact.
                 os.link(
                     temporary,
                     target,
@@ -114,14 +93,14 @@ class LocalFileAudioStorage(AudioStorage):
 
                 if existing is None:
                     raise RuntimeError(
-                        "Audio artifact disappeared during concurrent storage"
+                        "Video artifact disappeared during concurrent storage"
                     ) from None
 
                 return existing
 
             self._fsync_directory(target.parent)
 
-            return StoredAudioArtifact(
+            return StoredVideoArtifact(
                 storage_key=storage_key,
                 byte_size=len(data),
                 content_sha256=content_sha256,
@@ -136,17 +115,17 @@ class LocalFileAudioStorage(AudioStorage):
         normalized = storage_key.strip()
 
         if not normalized or "\\" in normalized:
-            raise ValueError("Invalid audio storage key")
+            raise ValueError("Invalid video storage key")
 
         relative = PurePosixPath(normalized)
 
         if relative.is_absolute() or ".." in relative.parts or "." in relative.parts:
-            raise ValueError("Audio storage key must be a safe relative path")
+            raise ValueError("Video storage key must be a safe relative path")
 
         target = self._root.joinpath(*relative.parts).resolve()
 
         if not target.is_relative_to(self._root):
-            raise ValueError("Audio storage key escapes root")
+            raise ValueError("Video storage key escapes root")
 
         return target
 
@@ -156,7 +135,7 @@ class LocalFileAudioStorage(AudioStorage):
         target: Path,
         storage_key: str,
         expected_sha256: str,
-    ) -> StoredAudioArtifact | None:
+    ) -> StoredVideoArtifact | None:
         if not target.exists():
             return None
 
@@ -164,11 +143,11 @@ class LocalFileAudioStorage(AudioStorage):
         existing_sha256 = hashlib.sha256(existing_data).hexdigest()
 
         if existing_sha256 != expected_sha256:
-            raise AudioStorageConflictError(
-                f"Audio storage key already contains different content: {storage_key}"
+            raise VideoStorageConflictError(
+                f"Video storage key already contains different content: {storage_key}"
             )
 
-        return StoredAudioArtifact(
+        return StoredVideoArtifact(
             storage_key=storage_key,
             byte_size=len(existing_data),
             content_sha256=existing_sha256,

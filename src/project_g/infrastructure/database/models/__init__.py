@@ -25,6 +25,9 @@ from project_g.infrastructure.database.models.news_script_generation import (
 from project_g.infrastructure.database.models.news_source import (
     NewsSourceRecord,
 )
+from project_g.infrastructure.database.models.news_video_generation import (
+    NewsVideoGenerationRecord,
+)
 
 __all__ = [
     "ManualNewsIntakeRecord",
@@ -36,4 +39,5 @@ __all__ = [
     "NewsRelevanceAnalysisRecord",
     "NewsScriptGenerationRecord",
     "NewsSourceRecord",
+    "NewsVideoGenerationRecord",
 ]

@@ -2,32 +2,24 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
-class AudioStorageConflictError(RuntimeError):
+class VideoStorageConflictError(RuntimeError):
     """Raised when one storage key already contains different bytes."""
 
 
 @dataclass(frozen=True, slots=True)
-class StoredAudioArtifact:
+class StoredVideoArtifact:
     storage_key: str
     byte_size: int
     content_sha256: str
 
 
-class AudioStorage(Protocol):
+class VideoStorage(Protocol):
     def get(
         self,
         *,
         storage_key: str,
-    ) -> StoredAudioArtifact | None:
+    ) -> StoredVideoArtifact | None:
         """Return metadata for an existing durable artifact."""
-        ...
-
-    def read(
-        self,
-        *,
-        storage_key: str,
-    ) -> bytes | None:
-        """Return durable audio bytes when the artifact exists."""
         ...
 
     def write(
@@ -35,6 +27,6 @@ class AudioStorage(Protocol):
         *,
         storage_key: str,
         data: bytes,
-    ) -> StoredAudioArtifact:
-        """Durably store one audio artifact."""
+    ) -> StoredVideoArtifact:
+        """Durably store one video artifact."""
         ...
