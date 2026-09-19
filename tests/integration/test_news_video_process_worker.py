@@ -2,6 +2,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 from uuid import UUID
 
 import pytest
@@ -43,6 +44,11 @@ from project_g.infrastructure.storage.local_audio import (
     LocalFileAudioStorage,
 )
 from project_g.interfaces.workers import jobs
+from project_g.ports.queue import (
+    JobArgument,
+    JobSnapshot,
+    QueueName,
+)
 from project_g.ports.video import (
     RenderedVideo,
     VideoRenderRequest,
@@ -780,3 +786,145 @@ def test_video_worker_cannot_complete_superseded_attempt(
     # The source audio is unaffected.
     assert audio.status is NewsNarrationAudioStatus.GENERATED
     assert audio.content_sha256 == _AUDIO_HASH
+
+
+def test_video_prepare_worker_persists_and_enqueues(
+    alembic_config: Config,
+    database_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from collections.abc import Mapping, Sequence
+
+    command.upgrade(
+        alembic_config,
+        "head",
+    )
+
+    _seed(database_engine)
+
+    class FakePool:
+        def close(self) -> None:
+            pass
+
+    class FakeConnection:
+        def close(self) -> None:
+            pass
+
+    class FakeRedis:
+        @staticmethod
+        def from_pool(_pool: object) -> FakeConnection:
+            return FakeConnection()
+
+    class RecordingQueueProvider:
+        calls: ClassVar[list[dict[str, object]]] = []
+
+        def __init__(
+            self,
+            _settings: object,
+            _connection: object,
+        ) -> None:
+            pass
+
+        def enqueue(
+            self,
+            queue_name: QueueName,
+            function_path: str,
+            *,
+            args: Sequence[JobArgument] = (),
+            kwargs: Mapping[str, JobArgument] | None = None,
+            job_id: str | None = None,
+            description: str | None = None,
+        ) -> JobSnapshot:
+            assert job_id is not None
+
+            # The video record must already be durable
+            # when the worker enqueues the processing job.
+            video, media, audio = _load_states(database_engine)
+
+            assert video.status is NewsVideoGenerationStatus.PENDING
+            assert video.attempt_count == 0
+
+            assert media.status is NewsMediaProductionStatus.PROCESSING
+            assert audio.status is NewsNarrationAudioStatus.GENERATED
+
+            self.calls.append(
+                {
+                    "queue_name": queue_name,
+                    "function_path": function_path,
+                    "args": tuple(args),
+                    "kwargs": kwargs,
+                    "job_id": job_id,
+                    "description": description,
+                }
+            )
+
+            return JobSnapshot(
+                job_id=job_id,
+                queue=queue_name,
+                status="queued",
+            )
+
+    monkeypatch.setattr(
+        jobs,
+        "Settings",
+        lambda: SimpleNamespace(
+            rq_job_timeout_seconds=300,
+        ),
+    )
+
+    monkeypatch.setattr(
+        jobs,
+        "create_database_engine",
+        lambda _settings: database_engine,
+    )
+
+    monkeypatch.setattr(
+        jobs,
+        "create_redis_connection_pool",
+        lambda *_args, **_kwargs: FakePool(),
+    )
+
+    monkeypatch.setattr(
+        jobs,
+        "Redis",
+        FakeRedis,
+    )
+
+    monkeypatch.setattr(
+        jobs,
+        "RQQueueProvider",
+        RecordingQueueProvider,
+    )
+
+    result = jobs.prepare_news_video_jobs(
+        limit=5,
+        audio_version=1,
+        video_version=1,
+    )
+
+    assert result["status"] == "processed"
+    assert result["candidate_count"] == 1
+    assert result["prepared_count"] == 1
+    assert result["enqueued_count"] == 1
+    assert result["duplicate_count"] == 0
+
+    assert RecordingQueueProvider.calls == [
+        {
+            "queue_name": QueueName.DEFAULT,
+            "function_path": ("project_g.interfaces.workers.jobs.process_news_video"),
+            "args": (str(_VIDEO_ID), 1),
+            "kwargs": None,
+            "job_id": f"news-video-{_VIDEO_ID}-a1",
+            "description": "Generate Project G news video",
+        }
+    ]
+
+    video, media, audio = _load_states(database_engine)
+
+    assert video.status is NewsVideoGenerationStatus.PENDING
+    assert video.attempt_count == 0
+    assert video.source_audio_generation_id == _AUDIO_ID
+    assert video.source_audio_sha256 == _AUDIO_HASH
+
+    assert media.status is NewsMediaProductionStatus.PROCESSING
+    assert audio.status is NewsNarrationAudioStatus.GENERATED

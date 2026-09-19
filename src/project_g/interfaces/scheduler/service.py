@@ -29,6 +29,11 @@ NEWS_NARRATION_AUDIO_INTERVAL_SECONDS = 300
 NEWS_NARRATION_AUDIO_LIMIT = 5
 NEWS_NARRATION_AUDIO_VERSION = 1
 
+NEWS_VIDEO_GENERATION_INTERVAL_SECONDS = 300
+NEWS_VIDEO_GENERATION_LIMIT = 5
+NEWS_VIDEO_AUDIO_VERSION = 1
+NEWS_VIDEO_VERSION = 1
+
 
 class SchedulerRunStatus(StrEnum):
     ENQUEUED = "enqueued"
@@ -47,6 +52,7 @@ class SchedulerIterationResult:
     script_enqueue_job_id: str | None = None
     media_production_job_id: str | None = None
     narration_audio_job_id: str | None = None
+    video_generation_job_id: str | None = None
 
 
 class SchedulerService:
@@ -152,6 +158,16 @@ class SchedulerService:
         )
         return f"news-narration-audio-prepare-{bucket}"
 
+    def _create_video_generation_job_id(
+        self,
+        current_time: datetime,
+    ) -> str:
+        bucket = self._time_bucket(
+            current_time,
+            interval_seconds=NEWS_VIDEO_GENERATION_INTERVAL_SECONDS,
+        )
+        return f"news-video-prepare-{bucket}"
+
     def run_once(self) -> SchedulerIterationResult:
         if not self._scheduler_lock.acquire():
             return SchedulerIterationResult(
@@ -174,6 +190,7 @@ class SchedulerService:
             script_enqueue_job_id = self._create_script_enqueue_job_id(current_time)
             media_production_job_id = self._create_media_production_job_id(current_time)
             narration_audio_job_id = self._create_narration_audio_job_id(current_time)
+            video_generation_job_id = self._create_video_generation_job_id(current_time)
 
             enqueued_any = False
 
@@ -293,6 +310,23 @@ class SchedulerService:
             else:
                 enqueued_any = True
 
+            try:
+                self._queue_provider.enqueue(
+                    QueueName.DEFAULT,
+                    "project_g.interfaces.workers.jobs.prepare_news_video_jobs",
+                    kwargs={
+                        "limit": NEWS_VIDEO_GENERATION_LIMIT,
+                        "audio_version": NEWS_VIDEO_AUDIO_VERSION,
+                        "video_version": NEWS_VIDEO_VERSION,
+                    },
+                    job_id=video_generation_job_id,
+                    description="Prepare news video generation jobs",
+                )
+            except DuplicateJobError:
+                pass
+            else:
+                enqueued_any = True
+
             return SchedulerIterationResult(
                 status=(
                     SchedulerRunStatus.ENQUEUED
@@ -307,6 +341,7 @@ class SchedulerService:
                 script_enqueue_job_id=script_enqueue_job_id,
                 media_production_job_id=media_production_job_id,
                 narration_audio_job_id=narration_audio_job_id,
+                video_generation_job_id=video_generation_job_id,
             )
         finally:
             self._scheduler_lock.release()

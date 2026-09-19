@@ -213,3 +213,71 @@ def test_narration_audio_queue_failure_propagates_and_releases_lock() -> None:
         service.run_once()
 
     assert scheduler_lock.released is True
+
+
+def test_scheduler_enqueues_video_preparation() -> None:
+    queue = FakeQueueProvider()
+    lock = FakeLock()
+
+    scheduler = _service(
+        queue,
+        lock,
+        clock=lambda: _NOW,
+    )
+
+    result = scheduler.run_once()
+
+    calls = [
+        call
+        for call in queue.calls
+        if call["function_path"] == "project_g.interfaces.workers.jobs.prepare_news_video_jobs"
+    ]
+
+    expected_id = f"news-video-prepare-{int(_NOW.timestamp()) // 300}"
+
+    assert calls == [
+        {
+            "queue_name": QueueName.DEFAULT,
+            "function_path": ("project_g.interfaces.workers.jobs.prepare_news_video_jobs"),
+            "args": (),
+            "kwargs": {
+                "limit": 5,
+                "audio_version": 1,
+                "video_version": 1,
+            },
+            "job_id": expected_id,
+            "description": "Prepare news video generation jobs",
+        }
+    ]
+
+    assert result.status is SchedulerRunStatus.ENQUEUED
+    assert result.video_generation_job_id == expected_id
+    assert lock.released is True
+
+
+def test_video_preparation_uses_five_minute_bucket() -> None:
+    queue = FakeQueueProvider()
+    lock = FakeLock()
+
+    times = iter(
+        (
+            datetime(2026, 9, 8, 12, 3, tzinfo=UTC),
+            datetime(2026, 9, 8, 12, 4, tzinfo=UTC),
+            datetime(2026, 9, 8, 12, 5, tzinfo=UTC),
+        )
+    )
+
+    scheduler = _service(
+        queue,
+        lock,
+        clock=lambda: next(times),
+    )
+
+    first = scheduler.run_once()
+    second = scheduler.run_once()
+    third = scheduler.run_once()
+
+    assert first.video_generation_job_id == second.video_generation_job_id
+    assert third.video_generation_job_id != first.video_generation_job_id
+
+    assert all(result.video_generation_job_id is not None for result in (first, second, third))

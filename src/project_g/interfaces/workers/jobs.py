@@ -1758,3 +1758,124 @@ def process_news_video(
 
     finally:
         engine.dispose()
+
+
+def prepare_news_video_jobs(
+    limit: int = 5,
+    audio_version: int = 1,
+    video_version: int = 1,
+) -> dict[str, str | int]:
+    """Persist video generation jobs and enqueue their processing."""
+
+    from project_g.application.news.enqueue_news_video_generation import (
+        EnqueueNewsVideoGeneration,
+    )
+    from project_g.application.news.prepare_news_video_jobs import (
+        PrepareNewsVideoJobs,
+    )
+    from project_g.infrastructure.database.repositories.news_video_candidates import (
+        SqlAlchemyNewsVideoCandidateRepository,
+    )
+
+    if not 1 <= limit <= 50:
+        raise ValueError("limit must be between 1 and 50")
+
+    if audio_version < 1:
+        raise ValueError("audio_version must be at least 1")
+
+    if video_version < 1:
+        raise ValueError("video_version must be at least 1")
+
+    settings = Settings()
+    engine = create_database_engine(settings)
+
+    factory = sessionmaker(
+        bind=engine,
+        expire_on_commit=False,
+    )
+
+    try:
+        prepared_at = datetime.now(UTC)
+
+        stale_before = prepared_at - timedelta(seconds=settings.rq_job_timeout_seconds)
+
+        # -------------------------------------------------
+        # Transaction 1:
+        # Discover eligible audio and persist video jobs.
+        # No Redis or FFmpeg work occurs inside this
+        # transaction.
+        # -------------------------------------------------
+
+        with factory.begin() as session:
+            candidate_repository = SqlAlchemyNewsVideoCandidateRepository(session)
+
+            generation_repository = SqlAlchemyNewsVideoGenerationRepository(session)
+
+            service = PrepareNewsVideoJobs(
+                candidate_repository=candidate_repository,
+                generation_repository=generation_repository,
+                clock=lambda: prepared_at,
+            )
+
+            result = service.execute(
+                audio_version=audio_version,
+                video_version=video_version,
+                stale_before=stale_before,
+                limit=limit,
+                renderer="ffmpeg",
+                video_format="mp4",
+                width=1080,
+                height=1920,
+                fps=30,
+            )
+
+        # -------------------------------------------------
+        # Transaction 1 has committed.
+        # Enqueue durable video generation jobs.
+        # -------------------------------------------------
+
+        enqueued_count = 0
+        duplicate_count = 0
+
+        if result.jobs:
+            connection_pool = create_redis_connection_pool(
+                settings,
+                decode_responses=False,
+            )
+
+            connection = Redis.from_pool(connection_pool)
+
+            try:
+                queue_provider = RQQueueProvider(
+                    settings,
+                    connection,
+                )
+
+                enqueue_service = EnqueueNewsVideoGeneration(
+                    queue_provider=queue_provider,
+                )
+
+                for job in result.jobs:
+                    try:
+                        enqueue_service.execute(job)
+
+                    except DuplicateJobError:
+                        duplicate_count += 1
+
+                    else:
+                        enqueued_count += 1
+
+            finally:
+                connection.close()
+                connection_pool.close()
+
+        return {
+            "status": "processed",
+            "candidate_count": result.candidate_count,
+            "prepared_count": result.prepared_count,
+            "enqueued_count": enqueued_count,
+            "duplicate_count": duplicate_count,
+        }
+
+    finally:
+        engine.dispose()
